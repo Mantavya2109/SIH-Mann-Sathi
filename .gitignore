@@ -1,0 +1,51 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python Cache and Compilation Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local / Temporary Test Scripts
+test_mic.py
+test_voice_pipeline.py
+test_emotion_model.py
+test_live_emotion.py
+test_stt.py
+
+# Temporary Audio and Data Files
+*.wav
+pipeline_test_input.wav
+live_emotion_test_temp.wav
+stt_live_test_temp.wav
+temp_mic_test.wav
+temp_test_audio.wav
+
+# Configuration & Secrets
+.env
+.env.*
+.secrets
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Hugging Face & Model Cache
+.cache/
+.huggingface/
+
+# Operating System Files
+Thumbs.db
+desktop.ini
