@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aura - Empathetic Voice Companion</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar (Hidden on mobile, clean list on desktop) -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="brand">
+                    <div class="brand-logo">
+                        <i class="fa-solid fa-wind"></i>
+                    </div>
+                    <span>Aura</span>
+                </div>
+            </div>
+            <div class="sidebar-content">
+                <button class="new-chat-btn" id="new-chat-sidebar-btn">
+                    <i class="fa-solid fa-plus"></i> New Conversation
+                </button>
+            </div>
+            <div class="sidebar-footer">
+                <p class="app-version">Version 1.0.0</p>
+            </div>
+        </aside>
+
+        <!-- Main Conversational Chat Space -->
+        <main class="chat-space">
+            <!-- Top Navigation Bar -->
+            <header class="top-nav">
+                <div class="brand-mobile">
+                    <i class="fa-solid fa-wind"></i> Aura
+                </div>
+                <div class="top-nav-actions">
+                    <button class="reset-btn" id="reset-conversation-btn" title="Reset Conversation">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span>New Chat</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Scrollable Conversation Area -->
+            <section class="messages-container" id="messages-container">
+                <div class="welcome-container" id="welcome-container">
+                    <div class="welcome-logo">
+                        <i class="fa-solid fa-wind"></i>
+                    </div>
+                    <h1>How can I support you today?</h1>
+                    <p class="welcome-subtitle">Aura is your private, empathetic space to speak, reflect, and share.</p>
+                    <div class="feature-suggestions">
+                        <div class="suggestion-card" onclick="prefillSpeech('I\'m feeling a bit stressed today')">
+                            <i class="fa-solid fa-heart-pulse"></i>
+                            <span>"I'm feeling a bit stressed..."</span>
+                        </div>
+                        <div class="suggestion-card" onclick="prefillSpeech('I had a really good day today')">
+                            <i class="fa-solid fa-face-smile"></i>
+                            <span>"I had a really good day..."</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Chat Messages will be dynamically rendered here -->
+            </section>
+
+            <!-- Bottom Composer Area -->
+            <footer class="composer-container">
+                <div class="composer-card">
+                    <!-- Typing / Processing Indicator -->
+                    <div class="status-indicator-bar" id="status-indicator-bar">
+                        <span id="status-text">Ready to listen</span>
+                    </div>
+
+                    <div class="composer-controls">
+                        <!-- Microphone Interaction Button -->
+                        <button class="mic-button" id="mic-button" aria-label="Start recording">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                        
+                        <!-- Status Info / Timer Display -->
+                        <div class="recording-details" id="recording-details">
+                            <div class="pulse-ring"></div>
+                            <span class="recording-timer" id="recording-timer">00:00</span>
+                            <span class="recording-status">Listening...</span>
+                        </div>
+
+                        <div class="instruction-text" id="instruction-text">
+                            Tap the microphone to speak your message
+                        </div>
+
+                        <!-- Manual Stop/Send button -->
+                        <button class="stop-button" id="stop-button" aria-label="Stop recording">
+                            <i class="fa-solid fa-stop"></i>
+                        </button>
+                    </div>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Custom Script File -->
+    <script src="script.js"></script>
+</body>
+</html>
