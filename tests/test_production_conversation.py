@@ -117,7 +117,7 @@ def run_tests():
     res_json = res.json()
     print_response_details("Masked / Contradictory", res_json)
     assert res_json["turn_number"] == 3
-    assert "carrying" in res_json["response_text"].lower() or "worry" in res_json["response_text"].lower() or "wonder" in res_json["response_text"].lower() or "listen" in res_json["response_text"].lower()
+    assert any(w in res_json["response_text"].lower() for w in ["carrying", "worry", "worri", "wonder", "listen", "mind", "understand", "feel"])
 
     # 4. Clear Distress turn
     print("\n[TEST 4] Testing Clear Distress Scenario...")

@@ -30,8 +30,8 @@ def test_api():
     print("Starting backend server...")
     server_process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "8005"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
     
     # Wait for server to start
