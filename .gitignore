@@ -19,6 +19,12 @@ test_voice_pipeline.py
 test_emotion_model.py
 test_live_emotion.py
 test_stt.py
+test_conversation_features.py
+test_text_emotion.py
+test_fusion.py
+test_full_pipeline.py
+test_production_services.py
+test_conversation_manager.py
 
 # Temporary Audio and Data Files
 *.wav
@@ -49,3 +55,6 @@ temp_test_audio.wav
 # Operating System Files
 Thumbs.db
 desktop.ini
+
+# Temporary Test Frontend
+test_frontend/
