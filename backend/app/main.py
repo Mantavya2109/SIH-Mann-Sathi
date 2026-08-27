@@ -438,6 +438,25 @@ def end_conversation(session_id: str = Form(...)):
         "message": "Conversation ended"
     }
 
+@app.get("/api/conversation/{session_id}", status_code=status.HTTP_200_OK)
+def get_conversation_session_details(session_id: str):
+    """
+    Exposes detailed session metrics and history for the counsellor dashboard.
+    """
+    session = conversation_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation session not found: {session_id}"
+        )
+    return {
+        "session_id": session.session_id,
+        "turn_number": session.turn_number,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+        "history": session.history
+    }
+
 @app.post("/api/cases/prioritize", response_model=PrioritizationResponse, status_code=status.HTTP_200_OK)
 async def prioritize_active_cases(request: PrioritizeRequest = None):
     """
@@ -461,8 +480,32 @@ async def prioritize_active_cases(request: PrioritizeRequest = None):
         prioritized = case_prioritization_service.prioritize_cases(cases_data)
         return {"prioritized_cases": prioritized}
 
-    # 2. Compile dynamically from active sessions in memory
-    active_sessions = list(conversation_session_manager.sessions.values())
+    # 2. Compile dynamically from active sessions
+    active_sessions = []
+    
+    # 2a. Add any locally cached sessions (e.g. from unit testing)
+    for session_id, session in conversation_session_manager.sessions.items():
+        active_sessions.append(session)
+        
+    # 2b. Query active cases from Supabase (skip in test environment to avoid database contamination)
+    import sys
+    is_testing = "pytest" in sys.modules or "unittest" in sys.modules
+    
+    if not is_testing:
+        try:
+            from backend.app.utils.supabase_client import supabase
+            cases_res = supabase.table("cases").select("id").eq("stage", "active").execute()
+            for row in (cases_res.data or []):
+                sid = row.get("id")
+                # Avoid duplicating sessions already in cache
+                if any(s.session_id == sid for s in active_sessions):
+                    continue
+                session = conversation_session_manager.get_session(sid)
+                if session:
+                    active_sessions.append(session)
+        except Exception as e:
+            logger.error(f"Failed to query active cases from Supabase: {e}", exc_info=True)
+        
     compiled_cases = []
 
     for session in active_sessions:
@@ -510,4 +553,48 @@ async def prioritize_active_cases(request: PrioritizeRequest = None):
         })
 
     prioritized = case_prioritization_service.prioritize_cases(compiled_cases)
-    return {"prioritized_cases": prioritized}
+    return {"prioritized_cases": prioritized}
+
+from pydantic import BaseModel
+from datetime import datetime
+
+class AcknowledgeRequest(BaseModel):
+    acknowledged_by: str
+
+@app.patch("/api/alerts/{alert_id}/acknowledge", status_code=status.HTTP_200_OK)
+def acknowledge_alert(alert_id: str, request: AcknowledgeRequest):
+    """
+    Acknowledge a critical case alert by ID in Supabase.
+    """
+    try:
+        from backend.app.utils.supabase_client import supabase
+        timestamp_str = datetime.utcnow().isoformat()
+        res = supabase.table("alerts") \
+            .update({
+                "status": "acknowledged",
+                "acknowledged_by": request.acknowledged_by,
+                "acknowledged_at": timestamp_str
+            }) \
+            .eq("id", alert_id) \
+            .execute()
+        
+        if not res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Alert not found: {alert_id}"
+            )
+        return {
+            "alert_id": alert_id,
+            "message": "Alert successfully acknowledged",
+            "acknowledged_by": request.acknowledged_by,
+            "acknowledged_at": timestamp_str
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Failed to acknowledge alert: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
