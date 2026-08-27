@@ -71,3 +71,25 @@ class SessionStartResponse(BaseModel):
 class SessionEndResponse(BaseModel):
     session_id: str
     message: str
+
+class CaseInput(BaseModel):
+    case_id: str
+    distress_score: Optional[float] = None
+    trend: Optional[str] = None  # "rising", "stable", "falling"
+    days_since_last_checkin: Optional[float] = None
+    risk_level: Optional[str] = None  # "LOW", "MODERATE", "HIGH", "SEVERE"
+    safety_attention: Optional[bool] = None
+
+class PrioritizedCase(BaseModel):
+    case_id: str
+    priority: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW"
+    priority_score: float
+    reason: str
+
+class PrioritizationResponse(BaseModel):
+    prioritized_cases: List[PrioritizedCase]
+
+class PrioritizeRequest(BaseModel):
+    cases: Optional[List[CaseInput]] = None
+
+

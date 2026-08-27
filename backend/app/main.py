@@ -7,7 +7,7 @@ import wave
 import av
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from backend.app.schemas.analysis import DistressAnalysisResponse, ConversationResponse, SessionStartResponse, SessionEndResponse
+from backend.app.schemas.analysis import DistressAnalysisResponse, ConversationResponse, SessionStartResponse, SessionEndResponse, CaseInput, PrioritizationResponse, PrioritizeRequest
 from backend.app.services.speech_emotion import speech_emotion_service
 from backend.app.services.speech_to_text import speech_to_text_service
 from backend.app.services.text_emotion import text_emotion_service
@@ -392,3 +392,77 @@ def end_conversation(session_id: str = Form(...)):
         "session_id": session_id,
         "message": "Conversation ended"
     }
+
+@app.post("/api/cases/prioritize", response_model=PrioritizationResponse, status_code=status.HTTP_200_OK)
+async def prioritize_active_cases(request: PrioritizeRequest = None):
+    """
+    Triage and rank check-in cases by distress level, trends, overrides, and recency.
+    If 'request.cases' is provided, prioritize those items.
+    Otherwise, compile inputs from active sessions in memory.
+    """
+    import time
+    from backend.app.services.case_prioritization import case_prioritization_service
+
+    cases = request.cases if request else None
+
+    # 1. Use client-provided cases if supplied
+    if cases is not None and len(cases) > 0:
+        cases_data = []
+        for c in cases:
+            if hasattr(c, "model_dump"):
+                cases_data.append(c.model_dump())
+            else:
+                cases_data.append(c.dict())
+        prioritized = case_prioritization_service.prioritize_cases(cases_data)
+        return {"prioritized_cases": prioritized}
+
+    # 2. Compile dynamically from active sessions in memory
+    active_sessions = list(conversation_session_manager.sessions.values())
+    compiled_cases = []
+
+    for session in active_sessions:
+        if not session.history:
+            continue
+
+        latest_turn = session.history[-1]
+        
+        # Get distress score safely
+        distress = latest_turn.get("distress_score", 0.0)
+        if distress is None or isinstance(distress, str):  # Handle "UNAVAILABLE" and null values
+            distress = 0.0
+        
+        # Retrieve risk level and safety flag
+        internal = latest_turn.get("internal_analysis", {})
+        fusion = internal.get("fusion_metrics", {})
+        risk_level = fusion.get("tier", "LOW")
+        safety = bool(latest_turn.get("safety_attention", False))
+
+        # Calculate simple trend based on last 2 turns
+        trend = "stable"
+        if len(session.history) >= 2:
+            prev_turn = session.history[-2]
+            prev_distress = prev_turn.get("distress_score", 0.0)
+            if isinstance(prev_distress, str):
+                prev_distress = 0.0
+            
+            diff = distress - prev_distress
+            if diff > 0.05:
+                trend = "rising"
+            elif diff < -0.05:
+                trend = "falling"
+
+        # Calculate time since check-in in days
+        elapsed = time.time() - session.updated_at
+        days = max(0.0, elapsed / 86400.0)
+
+        compiled_cases.append({
+            "case_id": session.session_id,
+            "distress_score": float(distress),
+            "trend": trend,
+            "days_since_last_checkin": float(days),
+            "risk_level": risk_level,
+            "safety_attention": safety
+        })
+
+    prioritized = case_prioritization_service.prioritize_cases(compiled_cases)
+    return {"prioritized_cases": prioritized}
