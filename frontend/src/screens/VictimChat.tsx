@@ -27,46 +27,252 @@ const initialMessages: Message[] = [
 export default function VictimChat({ onLogout }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
-  const [stage, setStage] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  
   const bottomRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
-  function sendMessage(text: string) {
-    const userMsg: Message = { id: Date.now(), role: "user", text };
-    let aiReply: Message | null = null;
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
-    if (stage === 0) {
-      aiReply = {
-        id: Date.now() + 1,
-        role: "ai",
-        text: "Thank you for sharing that. Would you like to tell me what has been making things difficult recently?",
-      };
-      setStage(1);
-    } else if (stage === 1) {
-      aiReply = {
-        id: Date.now() + 1,
-        role: "ai",
-        text: "That sounds difficult. You don't have to handle it alone. Would you like support with how you're feeling, or would you like information about your upcoming hearing?",
-      };
-      setStage(2);
-    } else {
-      aiReply = {
-        id: Date.now() + 1,
-        role: "ai",
-        text: "I hear you. I'm glad you shared that with me. A counsellor is available to speak with you — would you like me to arrange that?",
-      };
+    async function startSession() {
+      try {
+        const res = await fetch("http://localhost:8000/api/conversation/start", {
+          method: "POST"
+        });
+        if (!res.ok) throw new Error("Failed to start session");
+        const data = await res.json();
+        setSessionId(data.session_id);
+      } catch (err) {
+        console.error("Session init failed:", err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            role: "ai",
+            text: "Connection failed. Please ensure the backend server is running and try refreshing the page."
+          }
+        ]);
+      }
     }
+    startSession();
+  }, []);
 
-    setMessages((prev) => [...prev, userMsg, ...(aiReply ? [aiReply] : [])]);
+  async function sendMessage(text: string) {
+    if (loading || isRecording) return;
+    
+    // Add user message to UI immediately
+    const userMsgId = Date.now();
+    const userMsg: Message = { id: userMsgId, role: "user", text };
+    setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("message", text);
+      if (sessionId) {
+        formData.append("session_id", sessionId);
+      }
+
+      const res = await fetch("http://localhost:8000/api/conversation/respond", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error("API call failed");
+      }
+
+      const data = await res.json();
+      
+      const newMessages: Message[] = [];
+      if (data.response_text) {
+        newMessages.push({
+          id: Date.now() + 1,
+          role: "ai",
+          text: data.response_text,
+        });
+      }
+      if (data.follow_up_question) {
+        newMessages.push({
+          id: Date.now() + 2,
+          role: "ai",
+          text: data.follow_up_question,
+        });
+      }
+
+      setMessages((prev) => [...prev, ...newMessages]);
+    } catch (err) {
+      console.error("Failed to send text message:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 3,
+          role: "ai",
+          text: "Sorry, I ran into an issue communicating with the backend. Please try again in a moment.",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendVoiceMessage(blob: Blob) {
+    const tempUserMsgId = Date.now();
+    setMessages((prev) => [
+      ...prev,
+      { id: tempUserMsgId, role: "user", text: "🎤 Voice message (processing...)" },
+    ]);
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "voice_checkin.webm");
+      if (sessionId) {
+        formData.append("session_id", sessionId);
+      }
+
+      const res = await fetch("http://localhost:8000/api/conversation/respond", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error("Voice respond API failed");
+      }
+
+      const data = await res.json();
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === tempUserMsgId
+            ? { ...msg, text: data.transcript || "🎤 Voice message complete." }
+            : msg
+        )
+      );
+
+      const newMessages: Message[] = [];
+      if (data.response_text) {
+        newMessages.push({
+          id: Date.now() + 1,
+          role: "ai",
+          text: data.response_text,
+        });
+      }
+      if (data.follow_up_question) {
+        newMessages.push({
+          id: Date.now() + 2,
+          role: "ai",
+          text: data.follow_up_question,
+        });
+      }
+
+      setMessages((prev) => [...prev, ...newMessages]);
+    } catch (err) {
+      console.error("Failed to send voice message:", err);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === tempUserMsgId
+            ? { ...msg, text: "❌ Voice message failed to process." }
+            : msg
+        )
+      );
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 3,
+          role: "ai",
+          text: "I couldn't process your voice check-in. Please ensure the backend is available.",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function startRecording() {
+    if (loading || isRecording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      let mimeType = "";
+      if (MediaRecorder.isTypeSupported("audio/webm")) {
+        mimeType = "audio/webm";
+      } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+        mimeType = "audio/ogg";
+      } else if (MediaRecorder.isTypeSupported("audio/wav")) {
+        mimeType = "audio/wav";
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        mimeType = "audio/mp4";
+      }
+      
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
+        stream.getTracks().forEach((track) => track.stop());
+        await sendVoiceMessage(audioBlob);
+      };
+      
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone access denied or recorder failed:", err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          role: "ai",
+          text: "Microphone access denied or audio recording is unsupported on this browser.",
+        },
+      ]);
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }
+
+  async function handleLogout() {
+    if (sessionId) {
+      try {
+        const formData = new FormData();
+        formData.append("session_id", sessionId);
+        await fetch("http://localhost:8000/api/conversation/end", {
+          method: "POST",
+          body: formData,
+        });
+      } catch (err) {
+        console.error("Failed to end session cleanly:", err);
+      }
+    }
+    onLogout();
   }
 
   const stage0Chips = ["I'm doing okay", "I'm worried", "I'm feeling overwhelmed", "I don't want to talk right now"];
-  const stage2Chips = ["Talk about how I feel", "Case information", "Request counselling"];
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#f7f8fb" }}>
@@ -113,7 +319,7 @@ export default function VictimChat({ onLogout }: Props) {
         <div className="px-2 py-4 space-y-1" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
           <button
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-blue-300 hover:text-white transition-all"
-            onClick={onLogout}
+            onClick={handleLogout}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
@@ -218,35 +424,42 @@ export default function VictimChat({ onLogout }: Props) {
             </div>
           ))}
 
-          {/* Quick chips for stage 0 */}
-          {stage === 0 && messages.length === 2 && (
+          {/* Three dots bouncing loading indicator */}
+          {loading && (
+            <div className="flex justify-start">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mr-3 mt-0.5"
+                style={{ background: "#f0fdfa", border: "1.5px solid #99f6e4" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
+                </svg>
+              </div>
+              <div
+                className="max-w-sm px-4 py-3 rounded-2xl text-sm leading-relaxed flex gap-1.5 items-center"
+                style={{
+                  background: "#ffffff",
+                  color: "#94a3b8",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                  borderRadius: "4px 18px 18px 18px",
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0d9488] animate-bounce" style={{ animationDelay: "0s" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0d9488] animate-bounce" style={{ animationDelay: "0.15s" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0d9488] animate-bounce" style={{ animationDelay: "0.3s" }} />
+              </div>
+            </div>
+          )}
+
+          {/* Quick chips (only visible at the start of conversation) */}
+          {messages.length === 2 && !loading && (
             <div className="flex flex-wrap gap-2 pl-11">
               {stage0Chips.map((chip) => (
                 <button
                   key={chip}
                   onClick={() => sendMessage(chip)}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-[1.02]"
-                  style={{
-                    border: "1.5px solid #0d9488",
-                    color: "#0d9488",
-                    background: "#f0fdfa",
-                    fontFamily: "Manrope, sans-serif",
-                  }}
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Quick chips for stage 2 */}
-          {stage === 2 && (
-            <div className="flex flex-wrap gap-2 pl-11">
-              {stage2Chips.map((chip) => (
-                <button
-                  key={chip}
-                  onClick={() => sendMessage(chip)}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-[1.02]"
+                  disabled={loading || isRecording}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
                   style={{
                     border: "1.5px solid #0d9488",
                     color: "#0d9488",
@@ -272,13 +485,20 @@ export default function VictimChat({ onLogout }: Props) {
             <input
               type="text"
               value={input}
+              disabled={loading || isRecording}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && input.trim() && sendMessage(input.trim())}
-              placeholder="Type your message…"
+              placeholder={isRecording ? "Listening..." : loading ? "Thinking..." : "Type your message…"}
               className="flex-1 py-3.5 text-sm outline-none bg-transparent text-[#0f172a] placeholder:text-[#94a3b8]"
               style={{ fontFamily: "Inter, sans-serif" }}
             />
-            <button className="text-[#94a3b8] hover:text-[#0d9488] transition-colors p-1">
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              disabled={loading}
+              className={`p-1 transition-all active:scale-95 ${
+                isRecording ? "text-[#dc2626] animate-pulse" : "text-[#94a3b8] hover:text-[#0d9488]"
+              }`}
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
@@ -287,7 +507,8 @@ export default function VictimChat({ onLogout }: Props) {
             </button>
             <button
               onClick={() => input.trim() && sendMessage(input.trim())}
-              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+              disabled={loading || isRecording || !input.trim()}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-[0.96] disabled:opacity-50"
               style={{ background: "#0d9488" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round">

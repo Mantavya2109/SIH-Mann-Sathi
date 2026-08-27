@@ -16,6 +16,7 @@ from backend.app.services.distress_scorer import distress_scorer_service
 from backend.app.services.conversation_manager import conversation_manager
 from backend.app.services.response_generator import response_generator
 from backend.app.services.conversation_session import conversation_session_manager
+from backend.app.services.text_analysis import analyze_text_signal
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -204,11 +205,11 @@ def start_conversation():
     }
 
 @app.post("/api/conversation/respond", response_model=ConversationResponse, status_code=status.HTTP_200_OK)
-async def get_conversation_response(file: UploadFile = File(...), session_id: str = Form(None)):
+async def get_conversation_response(file: UploadFile = File(None), message: str = Form(None), session_id: str = Form(None)):
     """
     Multimodal Mental Health Response Generation Endpoint.
-    Accepts a single WAV audio file and an optional session_id to maintain history context,
-    runs the full analysis pipeline, and returns the response plus session/turn data.
+    Accepts either an UploadFile audio file or a text message, and an optional session_id,
+    runs the appropriate analysis pipeline, and returns the response plus session/turn data.
     """
     # If session_id is provided, check if it exists
     session = None
@@ -220,79 +221,123 @@ async def get_conversation_response(file: UploadFile = File(...), session_id: st
                 detail=f"Conversation session not found: {session_id}"
             )
             
-    # 1. Validate file metadata
-    if not file.filename:
+    if file is None and message is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file must have a filename."
+            detail="Either audio file or text message must be provided."
         )
-    allowed_extensions = {".wav", ".webm", ".ogg", ".opus", ".mp4", ".m4a"}
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in allowed_extensions:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format. Supported extensions: {', '.join(allowed_extensions)}"
-        )
-        
+
     temp_upload_path = None
     temp_file_path = None
     
     try:
-        # Create temporary file for upload
-        temp_upload = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        temp_upload_path = temp_upload.name
-        
-        # Create temporary file for processed WAV
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        temp_file_path = temp_file.name
-        temp_file.close()
-        
-        # 2. Save stream to temporary path
-        shutil.copyfileobj(file.file, temp_upload)
-        temp_upload.close()
-        
-        # Validate that the file is not empty (size check)
-        if os.path.getsize(temp_upload_path) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The uploaded audio file is empty (0 bytes)."
-            )
+        if file is not None:
+            # VOICE TURN: Run normal audio processing pipeline
+            # Validate file metadata
+            if not file.filename:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Uploaded file must have a filename."
+                )
+            allowed_extensions = {".wav", ".webm", ".ogg", ".opus", ".mp4", ".m4a"}
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in allowed_extensions:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported file format. Supported extensions: {', '.join(allowed_extensions)}"
+                )
+                
+            # Create temporary file for upload
+            temp_upload = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+            temp_upload_path = temp_upload.name
             
-        # Convert audio to standard WAV format
-        try:
-            convert_to_wav(temp_upload_path, temp_file_path)
-        except Exception as e:
-            logger.error(f"Failed to convert uploaded audio to WAV: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to process audio file format: {str(e)}"
-            )
+            # Create temporary file for processed WAV
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            temp_file_path = temp_file.name
+            temp_file.close()
             
-        # 3. Predict Voice Emotions
-        voice_emotions = speech_emotion_service.predict_emotion(temp_file_path)
-        
-        # 4. Transcribe Audio
-        stt_result = speech_to_text_service.transcribe(temp_file_path)
-        transcript = stt_result["transcript"]
-        segments = stt_result["segments"]
-        duration = stt_result["duration"]
-        
-        # 5. Extract Conversational Features
-        text_feats = conversation_features_service.extract_text_features(transcript)
-        acoustic_feats = conversation_features_service.extract_acoustic_features(temp_file_path)
-        vad_metrics = conversation_features_service.extract_vad_metrics(segments, duration)
-        speech_state = vad_metrics["speech_state"]
-        
-        # 6. Validate Transcript for Text Emotion Recognition
-        clean_text_check = re.sub(r"[^\w\s]", "", transcript).strip()
-        is_text_valid = len(clean_text_check) > 0
-        
-        if is_text_valid:
+            # Save stream to temporary path
+            shutil.copyfileobj(file.file, temp_upload)
+            temp_upload.close()
+            
+            # Validate that the file is not empty (size check)
+            if os.path.getsize(temp_upload_path) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The uploaded audio file is empty (0 bytes)."
+                )
+                
+            # Convert audio to standard WAV format
+            try:
+                convert_to_wav(temp_upload_path, temp_file_path)
+            except Exception as e:
+                logger.error(f"Failed to convert uploaded audio to WAV: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to process audio file format: {str(e)}"
+                )
+                
+            # 3. Predict Voice Emotions
+            voice_emotions = speech_emotion_service.predict_emotion(temp_file_path)
+            
+            # 4. Transcribe Audio
+            stt_result = speech_to_text_service.transcribe(temp_file_path)
+            transcript = stt_result["transcript"]
+            segments = stt_result["segments"]
+            duration = stt_result["duration"]
+            
+            # 5. Extract Conversational Features
+            text_feats = conversation_features_service.extract_text_features(transcript)
+            acoustic_feats = conversation_features_service.extract_acoustic_features(temp_file_path)
+            vad_metrics = conversation_features_service.extract_vad_metrics(segments, duration)
+            speech_state = vad_metrics["speech_state"]
+        else:
+            # TEXT TURN: Run text-only pipeline using the text_analysis service (or direct text prediction)
+            transcript = message
+            
+            # Predict Text Emotions via local DistilRoBERTa
             text_emotions = text_emotion_service.predict_emotion(transcript)
             text_state = "TEXT_EMOTIONS_AVAILABLE"
-        else:
-            text_emotions = "UNAVAILABLE"
-            text_state = "UNAVAILABLE (Silence/Punctuation Only)"
+            
+            # Call the existing text_analysis.py to analyze the text signal (using Groq)
+            try:
+                text_signal = analyze_text_signal(transcript)
+                logger.info(f"text_analysis.py signal: {text_signal}")
+            except Exception as e:
+                logger.error(f"Failed to run text_analysis: {e}")
+                text_signal = {}
+
+            # Voice/Acoustic details are empty or neutral for text turn
+            voice_emotions = {"Neutral": 1.0, "Happy": 0.0, "Sad": 0.0, "Angry": 0.0}
+            
+            text_feats = conversation_features_service.extract_text_features(transcript)
+            acoustic_feats = {
+                "energy_variability": 0.0,
+                "pitch_mean_hz": 0.0,
+                "pitch_variability_hz": 0.0
+            }
+            vad_metrics = {
+                "speech_state": "SPEECH_DETECTED",
+                "total_duration": 1.0,
+                "speech_duration": 1.0,
+                "silence_duration": 0.0,
+                "pause_duration": 0.0,
+                "pause_count": 0,
+                "speech_silence_ratio": 100.0
+            }
+            speech_state = "SPEECH_DETECTED"
+            
+        # 6. Validate Transcript for Text Emotion Recognition (only for voice turn, text turn already computed)
+        if file is not None:
+            clean_text_check = re.sub(r"[^\w\s]", "", transcript).strip()
+            is_text_valid = len(clean_text_check) > 0
+            
+            if is_text_valid:
+                text_emotions = text_emotion_service.predict_emotion(transcript)
+                text_state = "TEXT_EMOTIONS_AVAILABLE"
+            else:
+                text_emotions = "UNAVAILABLE"
+                text_state = "UNAVAILABLE (Silence/Punctuation Only)"
             
         # 7. Calculate Distress Fusion Score
         fusion = distress_scorer_service.calculate_score(
