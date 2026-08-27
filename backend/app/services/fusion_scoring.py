@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
 from text_analysis import analyze_text_signal
+from recommendation import generate_recommendation
 from explainability import format_explanation
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
@@ -36,6 +37,9 @@ def analyze_voice_checkin(audio_file_path: str) -> dict:
         response = requests.post(VOICE_ANALYSIS_URL, files=files)
         response.raise_for_status()
         return response.json()
+
+
+ALERT_THRESHOLD = 50  # score above this triggers an alert — tune as needed
 
 
 def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
@@ -73,7 +77,7 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
         "safety_flag": safety_flag
     }
 
-    # Persist to Supabase
+    # Persist the distress score
     insert_response = supabase.table("distress_scores").insert({
         "case_id": case_id,
         "total_score": total_score,
@@ -82,7 +86,26 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
         "explanation_text": explanation_text
     }).execute()
 
-    result["db_row_id"] = insert_response.data[0]["id"] if insert_response.data else None
+    distress_score_id = insert_response.data[0]["id"] if insert_response.data else None
+    result["db_row_id"] = distress_score_id
+
+    # Check threshold, create alert if needed
+    if total_score >= ALERT_THRESHOLD or safety_flag:
+        distress_summary = f"Distress explanation: {explanation_text}"
+        recommendation = generate_recommendation(distress_summary)
+
+        alert_response = supabase.table("alerts").insert({
+            "case_id": case_id,
+            "distress_score_id": distress_score_id,
+            "recommendation_text": recommendation["recommendation_text"],
+            "cited_provisions": recommendation["cited_provisions"],
+            "status": "pending"
+        }).execute()
+
+        result["alert_id"] = alert_response.data[0]["id"] if alert_response.data else None
+        result["alert_created"] = True
+    else:
+        result["alert_created"] = False
 
     return result
 
