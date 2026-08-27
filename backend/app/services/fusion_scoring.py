@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
 from text_analysis import analyze_text_signal
+from explainability import format_explanation
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
@@ -60,7 +61,7 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
     else:
         trend = "stable"
 
-    explanation_text = f"Score {total_score} vs baseline {round(baseline['avg_score'], 2)} ({trend})"
+    explanation_text = format_explanation(channel, checkin_result, total_score, trend)
 
     result = {
         "total_score": total_score,
