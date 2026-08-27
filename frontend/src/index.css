@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: #f7f8fb;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  --color-primary: #1e3a8a;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e8f4f8;
+  --color-secondary-foreground: #1e3a8a;
+  --color-muted: #eef2f7;
+  --color-muted-foreground: #64748b;
+  --color-accent: #0ea5e9;
+  --color-accent-foreground: #ffffff;
+  --color-teal: #0d9488;
+  --color-teal-light: #f0fdfa;
+  --color-mint: #16a34a;
+  --color-mint-light: #f0fdf4;
+  --color-amber-risk: #d97706;
+  --color-amber-light: #fffbeb;
+  --color-coral: #dc2626;
+  --color-coral-light: #fef2f2;
+  --color-border: #e2e8f0;
+  --color-ring: #0ea5e9;
+  --radius: 14px;
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Manrope', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
