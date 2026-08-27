@@ -161,11 +161,16 @@ class CasePrioritizationService:
                         if not reason:
                             reason = "Prioritized by agent analysis."
 
+                        orig = next((c for c in valid_input_cases if str(c.get("case_id")) == cid), {})
                         validated_cases.append({
                             "case_id": cid,
                             "priority": priority,
                             "priority_score": score,
-                            "reason": reason
+                            "reason": reason,
+                            "trend": orig.get("trend", "stable"),
+                            "days_since_last_checkin": orig.get("days_since_last_checkin", 0.0),
+                            "risk_level": orig.get("risk_level", "LOW"),
+                            "safety_attention": orig.get("safety_attention", False)
                         })
                         processed_ids.add(cid)
 
@@ -262,7 +267,11 @@ class CasePrioritizationService:
             "case_id": cid,
             "priority": priority,
             "priority_score": score,
-            "reason": reason_text
+            "reason": reason_text,
+            "trend": trend,
+            "days_since_last_checkin": days,
+            "risk_level": risk,
+            "safety_attention": safety
         }
 
     def _prioritize_cases_fallback(self, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
