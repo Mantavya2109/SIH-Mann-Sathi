@@ -19,7 +19,7 @@ class CasePrioritizationService:
     def __init__(self):
         self.api_key = os.environ.get("GROQ_API_KEY")
         self.client = None
-        self.model = "openai/gpt-oss-120b"
+        self.model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
         
         if self.api_key:
             try:

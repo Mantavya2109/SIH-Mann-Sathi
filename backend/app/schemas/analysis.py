@@ -47,6 +47,7 @@ class FusionMetrics(BaseModel):
     conversational_boost: Union[float, str]
     tier: str
     text_available: bool
+    voice_available: bool
 
 class DistressAnalysisResponse(BaseModel):
     transcript: str

@@ -3,11 +3,11 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
-from text_analysis import analyze_text_signal
-from recommendation import generate_recommendation
-from explainability import format_explanation
+from backend.app.services.text_analysis import analyze_text_signal
+from backend.app.services.recommendation import generate_recommendation
+from backend.app.services.explainability import format_explanation
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 VOICE_ANALYSIS_URL = "http://127.0.0.1:8000/api/analyze"

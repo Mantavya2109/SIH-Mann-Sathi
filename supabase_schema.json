@@ -1,0 +1,1680 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "description": "",
+    "title": "standard public schema",
+    "version": "14.17"
+  },
+  "host": "hdqdjexzdtlvmmkdmxba.supabase.co:443",
+  "basePath": "/",
+  "schemes": [
+    "https"
+  ],
+  "consumes": [
+    "application/json",
+    "application/vnd.pgrst.object+json;nulls=stripped",
+    "application/vnd.pgrst.object+json",
+    "text/csv"
+  ],
+  "produces": [
+    "application/json",
+    "application/vnd.pgrst.object+json;nulls=stripped",
+    "application/vnd.pgrst.object+json",
+    "text/csv"
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "produces": [
+          "application/openapi+json",
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "OpenAPI description (this document)",
+        "tags": [
+          "Introspection"
+        ]
+      }
+    },
+    "/consents": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.consents.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.checkin_consent"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.wearable_consent"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.consented_at"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/order"
+          },
+          {
+            "$ref": "#/parameters/range"
+          },
+          {
+            "$ref": "#/parameters/rangeUnit"
+          },
+          {
+            "$ref": "#/parameters/offset"
+          },
+          {
+            "$ref": "#/parameters/limit"
+          },
+          {
+            "$ref": "#/parameters/preferCount"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/consents"
+              },
+              "type": "array"
+            }
+          },
+          "206": {
+            "description": "Partial Content"
+          }
+        },
+        "tags": [
+          "consents"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/body.consents"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/preferPost"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "tags": [
+          "consents"
+        ]
+      },
+      "delete": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.consents.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.checkin_consent"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.wearable_consent"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.consented_at"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "consents"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.consents.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.checkin_consent"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.wearable_consent"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.consents.consented_at"
+          },
+          {
+            "$ref": "#/parameters/body.consents"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "consents"
+        ]
+      }
+    },
+    "/provisions": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.provisions.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.section_ref"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.text_chunk"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.embedding"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.category"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/order"
+          },
+          {
+            "$ref": "#/parameters/range"
+          },
+          {
+            "$ref": "#/parameters/rangeUnit"
+          },
+          {
+            "$ref": "#/parameters/offset"
+          },
+          {
+            "$ref": "#/parameters/limit"
+          },
+          {
+            "$ref": "#/parameters/preferCount"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/provisions"
+              },
+              "type": "array"
+            }
+          },
+          "206": {
+            "description": "Partial Content"
+          }
+        },
+        "tags": [
+          "provisions"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/body.provisions"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/preferPost"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "tags": [
+          "provisions"
+        ]
+      },
+      "delete": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.provisions.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.section_ref"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.text_chunk"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.embedding"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.category"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "provisions"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.provisions.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.section_ref"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.text_chunk"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.embedding"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.provisions.category"
+          },
+          {
+            "$ref": "#/parameters/body.provisions"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "provisions"
+        ]
+      }
+    },
+    "/check_ins": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.timestamp"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.channel"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.raw_text"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.language"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.sentiment_score"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.emotion"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.distress_indicators"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.voice_features"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/order"
+          },
+          {
+            "$ref": "#/parameters/range"
+          },
+          {
+            "$ref": "#/parameters/rangeUnit"
+          },
+          {
+            "$ref": "#/parameters/offset"
+          },
+          {
+            "$ref": "#/parameters/limit"
+          },
+          {
+            "$ref": "#/parameters/preferCount"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/check_ins"
+              },
+              "type": "array"
+            }
+          },
+          "206": {
+            "description": "Partial Content"
+          }
+        },
+        "tags": [
+          "check_ins"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/body.check_ins"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/preferPost"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "tags": [
+          "check_ins"
+        ]
+      },
+      "delete": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.timestamp"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.channel"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.raw_text"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.language"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.sentiment_score"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.emotion"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.distress_indicators"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.voice_features"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "check_ins"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.timestamp"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.channel"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.raw_text"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.language"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.sentiment_score"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.emotion"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.distress_indicators"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.check_ins.voice_features"
+          },
+          {
+            "$ref": "#/parameters/body.check_ins"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "check_ins"
+        ]
+      }
+    },
+    "/distress_scores": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.timestamp"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.total_score"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.sub_scores"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.trend"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.explanation_text"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/order"
+          },
+          {
+            "$ref": "#/parameters/range"
+          },
+          {
+            "$ref": "#/parameters/rangeUnit"
+          },
+          {
+            "$ref": "#/parameters/offset"
+          },
+          {
+            "$ref": "#/parameters/limit"
+          },
+          {
+            "$ref": "#/parameters/preferCount"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/distress_scores"
+              },
+              "type": "array"
+            }
+          },
+          "206": {
+            "description": "Partial Content"
+          }
+        },
+        "tags": [
+          "distress_scores"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/body.distress_scores"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/preferPost"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "tags": [
+          "distress_scores"
+        ]
+      },
+      "delete": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.timestamp"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.total_score"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.sub_scores"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.trend"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.explanation_text"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "distress_scores"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.timestamp"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.total_score"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.sub_scores"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.trend"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.distress_scores.explanation_text"
+          },
+          {
+            "$ref": "#/parameters/body.distress_scores"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "distress_scores"
+        ]
+      }
+    },
+    "/cases": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.cases.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.nhaa_ref"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.enrollment_date"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.stage"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/order"
+          },
+          {
+            "$ref": "#/parameters/range"
+          },
+          {
+            "$ref": "#/parameters/rangeUnit"
+          },
+          {
+            "$ref": "#/parameters/offset"
+          },
+          {
+            "$ref": "#/parameters/limit"
+          },
+          {
+            "$ref": "#/parameters/preferCount"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/cases"
+              },
+              "type": "array"
+            }
+          },
+          "206": {
+            "description": "Partial Content"
+          }
+        },
+        "tags": [
+          "cases"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/body.cases"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/preferPost"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "tags": [
+          "cases"
+        ]
+      },
+      "delete": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.cases.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.nhaa_ref"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.enrollment_date"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.stage"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "cases"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.cases.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.nhaa_ref"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.enrollment_date"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.cases.stage"
+          },
+          {
+            "$ref": "#/parameters/body.cases"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "cases"
+        ]
+      }
+    },
+    "/alerts": {
+      "get": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.alerts.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.distress_score_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.created_at"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.recommendation_text"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.cited_provisions"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.status"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.acknowledged_by"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.acknowledged_at"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/order"
+          },
+          {
+            "$ref": "#/parameters/range"
+          },
+          {
+            "$ref": "#/parameters/rangeUnit"
+          },
+          {
+            "$ref": "#/parameters/offset"
+          },
+          {
+            "$ref": "#/parameters/limit"
+          },
+          {
+            "$ref": "#/parameters/preferCount"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/alerts"
+              },
+              "type": "array"
+            }
+          },
+          "206": {
+            "description": "Partial Content"
+          }
+        },
+        "tags": [
+          "alerts"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/body.alerts"
+          },
+          {
+            "$ref": "#/parameters/select"
+          },
+          {
+            "$ref": "#/parameters/preferPost"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "tags": [
+          "alerts"
+        ]
+      },
+      "delete": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.alerts.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.distress_score_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.created_at"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.recommendation_text"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.cited_provisions"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.status"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.acknowledged_by"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.acknowledged_at"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "alerts"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "$ref": "#/parameters/rowFilter.alerts.id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.case_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.distress_score_id"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.created_at"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.recommendation_text"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.cited_provisions"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.status"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.acknowledged_by"
+          },
+          {
+            "$ref": "#/parameters/rowFilter.alerts.acknowledged_at"
+          },
+          {
+            "$ref": "#/parameters/body.alerts"
+          },
+          {
+            "$ref": "#/parameters/preferReturn"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/rpc/match_provisions": {
+      "get": {
+        "parameters": [
+          {
+            "format": "public.vector",
+            "in": "query",
+            "name": "query_embedding",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "format": "int32",
+            "in": "query",
+            "name": "match_count",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "format": "text",
+            "in": "query",
+            "name": "filter_category",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/json",
+          "application/vnd.pgrst.object+json;nulls=stripped",
+          "application/vnd.pgrst.object+json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "(rpc) match_provisions"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "body",
+            "name": "args",
+            "required": true,
+            "schema": {
+              "properties": {
+                "filter_category": {
+                  "format": "text",
+                  "type": "string"
+                },
+                "match_count": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "query_embedding": {
+                  "format": "public.vector",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query_embedding"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "$ref": "#/parameters/preferParams"
+          }
+        ],
+        "produces": [
+          "application/json",
+          "application/vnd.pgrst.object+json;nulls=stripped",
+          "application/vnd.pgrst.object+json"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "(rpc) match_provisions"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "consents": {
+      "required": [
+        "case_id"
+      ],
+      "properties": {
+        "case_id": {
+          "description": "Note:\nThis is a Primary Key.<pk/>\nThis is a Foreign Key to `cases.id`.<fk table='cases' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "checkin_consent": {
+          "default": false,
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "wearable_consent": {
+          "default": false,
+          "format": "boolean",
+          "type": "boolean"
+        },
+        "consented_at": {
+          "default": "now()",
+          "format": "timestamp without time zone",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "provisions": {
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "section_ref": {
+          "format": "text",
+          "type": "string"
+        },
+        "text_chunk": {
+          "format": "text",
+          "type": "string"
+        },
+        "embedding": {
+          "format": "public.vector(384)",
+          "type": "string"
+        },
+        "category": {
+          "format": "text",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "check_ins": {
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "case_id": {
+          "description": "Note:\nThis is a Foreign Key to `cases.id`.<fk table='cases' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "timestamp": {
+          "default": "now()",
+          "format": "timestamp without time zone",
+          "type": "string"
+        },
+        "channel": {
+          "format": "text",
+          "type": "string"
+        },
+        "raw_text": {
+          "format": "text",
+          "type": "string"
+        },
+        "language": {
+          "format": "text",
+          "type": "string"
+        },
+        "sentiment_score": {
+          "format": "double precision",
+          "type": "number"
+        },
+        "emotion": {
+          "format": "text",
+          "type": "string"
+        },
+        "distress_indicators": {
+          "format": "jsonb"
+        },
+        "voice_features": {
+          "format": "jsonb"
+        }
+      },
+      "type": "object"
+    },
+    "distress_scores": {
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "case_id": {
+          "description": "Note:\nThis is a Foreign Key to `cases.id`.<fk table='cases' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "timestamp": {
+          "default": "now()",
+          "format": "timestamp without time zone",
+          "type": "string"
+        },
+        "total_score": {
+          "format": "double precision",
+          "type": "number"
+        },
+        "sub_scores": {
+          "format": "jsonb"
+        },
+        "trend": {
+          "format": "text",
+          "type": "string"
+        },
+        "explanation_text": {
+          "format": "text",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "cases": {
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "nhaa_ref": {
+          "format": "text",
+          "type": "string"
+        },
+        "enrollment_date": {
+          "default": "now()",
+          "format": "timestamp without time zone",
+          "type": "string"
+        },
+        "stage": {
+          "format": "text",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "alerts": {
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "default": "gen_random_uuid()",
+          "description": "Note:\nThis is a Primary Key.<pk/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "case_id": {
+          "description": "Note:\nThis is a Foreign Key to `cases.id`.<fk table='cases' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "distress_score_id": {
+          "description": "Note:\nThis is a Foreign Key to `distress_scores.id`.<fk table='distress_scores' column='id'/>",
+          "format": "uuid",
+          "type": "string"
+        },
+        "created_at": {
+          "default": "now()",
+          "format": "timestamp without time zone",
+          "type": "string"
+        },
+        "recommendation_text": {
+          "format": "text",
+          "type": "string"
+        },
+        "cited_provisions": {
+          "format": "jsonb"
+        },
+        "status": {
+          "default": "pending",
+          "format": "text",
+          "type": "string"
+        },
+        "acknowledged_by": {
+          "format": "text",
+          "type": "string"
+        },
+        "acknowledged_at": {
+          "format": "timestamp without time zone",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "parameters": {
+    "preferParams": {
+      "name": "Prefer",
+      "description": "Preference",
+      "required": false,
+      "in": "header",
+      "type": "string"
+    },
+    "preferReturn": {
+      "name": "Prefer",
+      "description": "Preference",
+      "required": false,
+      "enum": [
+        "return=representation",
+        "return=minimal",
+        "return=none"
+      ],
+      "in": "header",
+      "type": "string"
+    },
+    "preferCount": {
+      "name": "Prefer",
+      "description": "Preference",
+      "required": false,
+      "enum": [
+        "count=none"
+      ],
+      "in": "header",
+      "type": "string"
+    },
+    "preferPost": {
+      "name": "Prefer",
+      "description": "Preference",
+      "required": false,
+      "enum": [
+        "return=representation",
+        "return=minimal",
+        "return=none",
+        "resolution=ignore-duplicates",
+        "resolution=merge-duplicates"
+      ],
+      "in": "header",
+      "type": "string"
+    },
+    "select": {
+      "name": "select",
+      "description": "Filtering Columns",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "on_conflict": {
+      "name": "on_conflict",
+      "description": "On Conflict",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "order": {
+      "name": "order",
+      "description": "Ordering",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "range": {
+      "name": "Range",
+      "description": "Limiting and Pagination",
+      "required": false,
+      "in": "header",
+      "type": "string"
+    },
+    "rangeUnit": {
+      "name": "Range-Unit",
+      "description": "Limiting and Pagination",
+      "required": false,
+      "default": "items",
+      "in": "header",
+      "type": "string"
+    },
+    "offset": {
+      "name": "offset",
+      "description": "Limiting and Pagination",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "limit": {
+      "name": "limit",
+      "description": "Limiting and Pagination",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "body.consents": {
+      "name": "consents",
+      "description": "consents",
+      "required": false,
+      "in": "body",
+      "schema": {
+        "$ref": "#/definitions/consents"
+      }
+    },
+    "rowFilter.consents.case_id": {
+      "name": "case_id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.consents.checkin_consent": {
+      "name": "checkin_consent",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.consents.wearable_consent": {
+      "name": "wearable_consent",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.consents.consented_at": {
+      "name": "consented_at",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "body.provisions": {
+      "name": "provisions",
+      "description": "provisions",
+      "required": false,
+      "in": "body",
+      "schema": {
+        "$ref": "#/definitions/provisions"
+      }
+    },
+    "rowFilter.provisions.id": {
+      "name": "id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.provisions.section_ref": {
+      "name": "section_ref",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.provisions.text_chunk": {
+      "name": "text_chunk",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.provisions.embedding": {
+      "name": "embedding",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.provisions.category": {
+      "name": "category",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "body.check_ins": {
+      "name": "check_ins",
+      "description": "check_ins",
+      "required": false,
+      "in": "body",
+      "schema": {
+        "$ref": "#/definitions/check_ins"
+      }
+    },
+    "rowFilter.check_ins.id": {
+      "name": "id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.case_id": {
+      "name": "case_id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.timestamp": {
+      "name": "timestamp",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.channel": {
+      "name": "channel",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.raw_text": {
+      "name": "raw_text",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.language": {
+      "name": "language",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.sentiment_score": {
+      "name": "sentiment_score",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.emotion": {
+      "name": "emotion",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.distress_indicators": {
+      "name": "distress_indicators",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.check_ins.voice_features": {
+      "name": "voice_features",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "body.distress_scores": {
+      "name": "distress_scores",
+      "description": "distress_scores",
+      "required": false,
+      "in": "body",
+      "schema": {
+        "$ref": "#/definitions/distress_scores"
+      }
+    },
+    "rowFilter.distress_scores.id": {
+      "name": "id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.distress_scores.case_id": {
+      "name": "case_id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.distress_scores.timestamp": {
+      "name": "timestamp",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.distress_scores.total_score": {
+      "name": "total_score",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.distress_scores.sub_scores": {
+      "name": "sub_scores",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.distress_scores.trend": {
+      "name": "trend",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.distress_scores.explanation_text": {
+      "name": "explanation_text",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "body.cases": {
+      "name": "cases",
+      "description": "cases",
+      "required": false,
+      "in": "body",
+      "schema": {
+        "$ref": "#/definitions/cases"
+      }
+    },
+    "rowFilter.cases.id": {
+      "name": "id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.cases.nhaa_ref": {
+      "name": "nhaa_ref",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.cases.enrollment_date": {
+      "name": "enrollment_date",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.cases.stage": {
+      "name": "stage",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "body.alerts": {
+      "name": "alerts",
+      "description": "alerts",
+      "required": false,
+      "in": "body",
+      "schema": {
+        "$ref": "#/definitions/alerts"
+      }
+    },
+    "rowFilter.alerts.id": {
+      "name": "id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.case_id": {
+      "name": "case_id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.distress_score_id": {
+      "name": "distress_score_id",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.created_at": {
+      "name": "created_at",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.recommendation_text": {
+      "name": "recommendation_text",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.cited_provisions": {
+      "name": "cited_provisions",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.status": {
+      "name": "status",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.acknowledged_by": {
+      "name": "acknowledged_by",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    },
+    "rowFilter.alerts.acknowledged_at": {
+      "name": "acknowledged_at",
+      "required": false,
+      "in": "query",
+      "type": "string"
+    }
+  },
+  "externalDocs": {
+    "description": "PostgREST Documentation",
+    "url": "https://postgrest.org/en/v14/references/api.html"
+  }
+}

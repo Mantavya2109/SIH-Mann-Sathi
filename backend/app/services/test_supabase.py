@@ -3,7 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 
 url = os.getenv("SUPABASE_URL")
 key = os.getenv("SUPABASE_KEY")
