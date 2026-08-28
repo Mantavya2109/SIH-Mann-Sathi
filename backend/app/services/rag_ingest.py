@@ -6,12 +6,22 @@ import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
-from sentence_transformers import SentenceTransformer
-import pdfplumber
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+pdfplumber = None
+try:
+    import pdfplumber
+except ImportError:
+    print("Warning: pdfplumber is not installed. PDF text extraction will be offline.")
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
-model = SentenceTransformer("all-MiniLM-L6-v2")
+
+model = None
+try:
+    from sentence_transformers import SentenceTransformer
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+except ImportError:
+    print("Warning: sentence_transformers is not installed. RAG embedding models will be offline.")
 
 
 def convert_doc_to_pdf(doc_path: str) -> str:
@@ -27,6 +37,8 @@ def convert_doc_to_pdf(doc_path: str) -> str:
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
+    if pdfplumber is None:
+        raise RuntimeError("pdfplumber is not installed. Cannot extract text from PDF.")
     full_text = ""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
@@ -70,6 +82,9 @@ def chunk_by_sections(raw_text: str) -> list[dict]:
 
 
 def embed_and_insert(chunks: list[dict], category: str = "general"):
+    if model is None:
+        print("Warning: SentenceTransformer model is not loaded. Skipping embed_and_insert.")
+        return
     for chunk in chunks:
         embedding = model.encode(chunk["text_chunk"]).tolist()
         supabase.table("provisions").insert({
@@ -97,6 +112,9 @@ def match_provisions(query: str, match_count: int = 3, category: str = None) -> 
     """
     Embeds a query and retrieves the most relevant provisions from Supabase.
     """
+    if model is None:
+        print("Warning: SentenceTransformer model is not loaded. match_provisions skipped.")
+        return []
     query_embedding = model.encode(query).tolist()
 
     response = supabase.rpc("match_provisions", {

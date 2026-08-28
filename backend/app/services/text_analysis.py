@@ -4,7 +4,7 @@ from pathlib import Path
 from groq import Groq
 from dotenv import load_dotenv
 
-env_path = Path(__file__).resolve().parents[2] / ".env"
+env_path = Path(__file__).resolve().parents[3] / ".env"
 
 
 load_dotenv(dotenv_path=env_path)
@@ -39,8 +39,9 @@ psychological distress. Respond ONLY with valid JSON in this exact format:
 
 Message: "{message}" """
 
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         temperature=0

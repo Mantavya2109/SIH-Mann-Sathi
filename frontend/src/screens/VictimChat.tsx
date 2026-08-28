@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
 interface Props {
+  user: { id: string; name: string; email: string; role: string };
   onLogout: () => void;
 }
 
@@ -24,7 +25,7 @@ const initialMessages: Message[] = [
   { id: 2, role: "ai", text: "How have you been feeling recently?" },
 ];
 
-export default function VictimChat({ onLogout }: Props) {
+export default function VictimChat({ user, onLogout }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -47,8 +48,13 @@ export default function VictimChat({ onLogout }: Props) {
 
     async function startSession() {
       try {
-        const res = await fetch("http://localhost:8000/api/conversation/start", {
-          method: "POST"
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        const formData = new FormData();
+        formData.append("user_id", user.id);
+        
+        const res = await fetch(`${baseUrl}/api/conversation/start`, {
+          method: "POST",
+          body: formData
         });
         if (!res.ok) throw new Error("Failed to start session");
         const data = await res.json();
@@ -85,7 +91,8 @@ export default function VictimChat({ onLogout }: Props) {
         formData.append("session_id", sessionId);
       }
 
-      const res = await fetch("http://localhost:8000/api/conversation/respond", {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/api/conversation/respond`, {
         method: "POST",
         body: formData,
       });
@@ -143,7 +150,8 @@ export default function VictimChat({ onLogout }: Props) {
         formData.append("session_id", sessionId);
       }
 
-      const res = await fetch("http://localhost:8000/api/conversation/respond", {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/api/conversation/respond`, {
         method: "POST",
         body: formData,
       });
@@ -261,7 +269,8 @@ export default function VictimChat({ onLogout }: Props) {
       try {
         const formData = new FormData();
         formData.append("session_id", sessionId);
-        await fetch("http://localhost:8000/api/conversation/end", {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        await fetch(`${baseUrl}/api/conversation/end`, {
           method: "POST",
           body: formData,
         });

@@ -66,6 +66,15 @@ def test_api():
         server_process.wait()
         print("Backend server terminated.")
         
+        # Clean up database record
+        try:
+            if 'session_id' in locals() and session_id:
+                from backend.app.services.conversation_session import conversation_session_manager
+                conversation_session_manager.delete_session_permanently(session_id)
+                print(f"Cleaned up test session {session_id} from Supabase.")
+        except Exception as e:
+            print("Failed to clean up test session from Supabase:", e)
+            
         # Clean up temp file
         if os.path.exists(temp_wav):
             os.remove(temp_wav)

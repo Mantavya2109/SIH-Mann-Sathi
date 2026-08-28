@@ -22,8 +22,8 @@ class TestAlertsAndAcknowledgements(unittest.TestCase):
         self.session = conversation_session_manager.get_session(self.session_id)
 
     def tearDown(self):
-        # Mark case stage as inactive
-        conversation_session_manager.delete_session(self.session_id)
+        # Permanently clean up test cases from Supabase
+        conversation_session_manager.delete_session_permanently(self.session_id)
 
     def test_alert_creation_and_acknowledgement(self):
         """

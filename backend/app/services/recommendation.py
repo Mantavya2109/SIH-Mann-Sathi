@@ -3,9 +3,9 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 from groq import Groq
-from rag_ingest import match_provisions
+from backend.app.services.rag_ingest import match_provisions
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
@@ -46,8 +46,9 @@ Relevant provisions:
 Respond ONLY as JSON:
 {{"recommendation_text": "...", "cited_sections": ["section_ref", ...]}}"""
 
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         temperature=0
