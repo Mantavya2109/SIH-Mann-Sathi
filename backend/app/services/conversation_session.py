@@ -188,7 +188,7 @@ class ConversationSession:
             "last_state": self.history[-1]["conversation_state"] if self.history else "NORMAL"
         }
 
-class Conve rsationSessionManager:
+class ConversationSessionManager:
     """
     Supabase persistent session query layer with local dictionary fallbacks for tests.
     """
