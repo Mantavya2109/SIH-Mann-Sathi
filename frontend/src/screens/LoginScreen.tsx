@@ -1,13 +1,15 @@
 import { useState } from "react";
 
 interface Props {
-  onLogin: (role: "victim" | "counsellor") => void;
+  onLogin: (user: { id: string; name: string; email: string; role: string }) => void;
 }
 
 export default function LoginScreen({ onLogin }: Props) {
   const [role, setRole] = useState<"victim" | "counsellor">("victim");
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   return (
     <div className="min-h-screen flex" style={{ background: "#f7f8fb" }}>
@@ -248,17 +250,55 @@ export default function LoginScreen({ onLogin }: Props) {
             <p className="text-right text-xs" style={{ color: "#0d9488" }}>
               <button className="hover:underline">Continue with OTP instead</button>
             </p>
+            {error && (
+              <p className="text-red-500 text-xs font-semibold text-center mt-2" style={{ fontFamily: "Inter, sans-serif" }}>
+                {error}
+              </p>
+            )}
           </div>
 
           <button
-            onClick={() => onLogin(role)}
+            onClick={async () => {
+              if (loading) return;
+              setError("");
+              setLoading(true);
+              let email = userId.trim();
+              if (email && !email.includes("@")) {
+                email = `${email.toLowerCase()}@nirbhayamitra.com`;
+              }
+              try {
+                const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+                const res = await fetch(`${baseUrl}/api/auth/login`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ email, password })
+                });
+                if (!res.ok) {
+                  const errData = await res.json().catch(() => ({}));
+                  throw new Error(errData.detail || "Invalid mobile/password combination");
+                }
+                const data = await res.json();
+                if (data.authenticated) {
+                  onLogin(data.user);
+                } else {
+                  throw new Error("Invalid credentials");
+                }
+              } catch (err: any) {
+                setError(err.message || "Failed to connect to backend server");
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
             className="w-full py-3.5 rounded-xl font-semibold text-sm text-white transition-all duration-200 active:scale-[0.98]"
             style={{
               background: "linear-gradient(135deg, #0d9488 0%, #0891b2 100%)",
               fontFamily: "Manrope, sans-serif",
+              opacity: loading ? 0.7 : 1,
+              cursor: loading ? "not-allowed" : "pointer"
             }}
           >
-            Continue
+            {loading ? "Signing in..." : "Continue"}
           </button>
 
           <p className="text-center text-xs" style={{ color: "#0d9488" }}>

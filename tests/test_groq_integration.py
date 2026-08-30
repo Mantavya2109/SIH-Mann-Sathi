@@ -442,30 +442,36 @@ class TestGroqIntegration(unittest.TestCase):
                     
                     client = TestClient(app)
                     
-                    # 1. Start session
-                    res_start = client.post("/api/conversation/start")
-                    self.assertEqual(res_start.status_code, 201)
-                    session_id = res_start.json()["session_id"]
-                    
-                    # 2. Call respond
-                    with open(temp_wav_path, "rb") as audio_file:
-                        res_respond = client.post(
-                            "/api/conversation/respond",
-                            files={"file": ("recording.wav", audio_file, "audio/wav")},
-                            data={"session_id": session_id}
-                        )
+                    session_id = None
+                    try:
+                        # 1. Start session
+                        res_start = client.post("/api/conversation/start")
+                        self.assertEqual(res_start.status_code, 201)
+                        session_id = res_start.json()["session_id"]
                         
-                    self.assertEqual(res_respond.status_code, 200)
-                    resp_json = res_respond.json()
-                    
-                    # Assert schema and exact keys (excluding restricted metrics)
-                    expected_keys = {"session_id", "turn_number", "transcript", "response_text", "follow_up_question"}
-                    self.assertEqual(set(resp_json.keys()), expected_keys)
-                    self.assertEqual(resp_json["session_id"], session_id)
-                    self.assertEqual(resp_json["turn_number"], 1)
-                    self.assertEqual(resp_json["transcript"], "I am feeling good today.")
-                    self.assertEqual(resp_json["response_text"], "Mock response from Groq.")
-                    self.assertEqual(resp_json["follow_up_question"], "Does that make sense?")
+                        # 2. Call respond
+                        with open(temp_wav_path, "rb") as audio_file:
+                            res_respond = client.post(
+                                "/api/conversation/respond",
+                                files={"file": ("recording.wav", audio_file, "audio/wav")},
+                                data={"session_id": session_id}
+                            )
+                            
+                        self.assertEqual(res_respond.status_code, 200)
+                        resp_json = res_respond.json()
+                        
+                        # Assert schema and exact keys (excluding restricted metrics)
+                        expected_keys = {"session_id", "turn_number", "transcript", "response_text", "follow_up_question"}
+                        self.assertEqual(set(resp_json.keys()), expected_keys)
+                        self.assertEqual(resp_json["session_id"], session_id)
+                        self.assertEqual(resp_json["turn_number"], 1)
+                        self.assertEqual(resp_json["transcript"], "I am feeling good today.")
+                        self.assertEqual(resp_json["response_text"], "Mock response from Groq.")
+                        self.assertEqual(resp_json["follow_up_question"], "Does that make sense?")
+                    finally:
+                        if session_id:
+                            from backend.app.services.conversation_session import conversation_session_manager
+                            conversation_session_manager.delete_session_permanently(session_id)
                     
         finally:
             if os.path.exists(temp_wav_path):

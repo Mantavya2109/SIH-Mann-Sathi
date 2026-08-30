@@ -17,6 +17,15 @@ class TestCasePrioritization(unittest.TestCase):
         self.client = TestClient(app)
         # Clear sessions before each test
         conversation_session_manager.sessions.clear()
+        self.session_ids = []
+
+    def tearDown(self):
+        # Clear all dynamic session cases from Supabase database
+        for sid in self.session_ids:
+            try:
+                conversation_session_manager.delete_session_permanently(sid)
+            except Exception:
+                pass
 
     def test_direct_service_fallback(self):
         """Test rule-based fallback logic directly."""
@@ -104,6 +113,7 @@ class TestCasePrioritization(unittest.TestCase):
         """Test POST /api/cases/prioritize dynamically loading active sessions."""
         # 1. Create session A (Normal Case)
         sid_a = conversation_session_manager.create_session()
+        self.session_ids.append(sid_a)
         session_a = conversation_session_manager.get_session(sid_a)
         session_a.add_turn(
             transcript="I am feeling good today.",
@@ -118,6 +128,7 @@ class TestCasePrioritization(unittest.TestCase):
         
         # 2. Create session B (Critical Case)
         sid_b = conversation_session_manager.create_session()
+        self.session_ids.append(sid_b)
         session_b = conversation_session_manager.get_session(sid_b)
         session_b.add_turn(
             transcript="I want to hurt myself. I've been feeling extremely bad.",
