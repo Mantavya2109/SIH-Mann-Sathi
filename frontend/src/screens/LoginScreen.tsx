@@ -44,7 +44,7 @@ export default function LoginScreen({ onLogin }: Props) {
               </svg>
             </div>
             <div>
-              <span className="text-white text-xl font-bold tracking-wide" style={{ fontFamily: "Manrope, sans-serif" }}>Nirbhaya Mitra</span>
+              <span className="text-white text-xl font-bold tracking-wide" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Saathi</span>
               <p className="text-blue-200 text-xs">AI-powered Victim Well-being & Support</p>
             </div>
           </div>
