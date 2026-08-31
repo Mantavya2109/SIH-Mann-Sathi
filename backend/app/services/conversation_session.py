@@ -2,8 +2,20 @@ import uuid
 import time
 from typing import Dict, Any, List, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from backend.app.utils.supabase_client import supabase
+from backend.app.utils.timezone_utils import (
+    IST_ZONE,
+    UTC_ZONE,
+    utc_now,
+    utc_now_iso,
+    to_ist,
+    parse_to_utc,
+    parse_utc_timestamp,
+    format_utc_iso,
+    format_ist,
+    get_ist_date_key
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +61,7 @@ class ConversationSession:
         self.turn_number += 1
         self.updated_at = time.time()
         
-        timestamp_str = datetime.utcnow().isoformat()
+        timestamp_str = utc_now_iso()
         
         # 1. Determine channel
         channel = "text"
@@ -158,9 +170,32 @@ class ConversationSession:
         except Exception as e:
             logger.error(f"Failed to insert into distress_scores table: {e}", exc_info=True)
 
-        # 6. If safety flag is active or score is critically high, trigger alert in Supabase
-        if safety_attention or total_score_db >= 85.0:
+        # 6. Evaluate multimodal fusion result + crisis safety override for alert creation
+        fusion_metrics = (internal_analysis or {}).get("fusion_metrics") or {}
+        fusion_tier = fusion_metrics.get("tier", "")
+        if not fusion_tier:
+            if total_score_db >= 75.0:
+                fusion_tier = "SEVERE"
+            elif total_score_db >= 50.0:
+                fusion_tier = "HIGH"
+            elif total_score_db >= 25.0:
+                fusion_tier = "MODERATE"
+            else:
+                fusion_tier = "LOW"
+
+        should_trigger_alert = (
+            safety_attention or
+            fusion_tier in ("SEVERE", "CRITICAL", "HIGH") or
+            total_score_db >= 60.0
+        )
+
+        if should_trigger_alert:
             alert_id = str(uuid.uuid4())
+            if not recommendation_text:
+                recommendation_text = "Prioritize immediate counsellor outreach and legal relief assessment."
+            if not cited_provisions:
+                cited_provisions = ["Section 15A - Support and Relief"]
+
             try:
                 supabase.table("alerts").insert({
                     "id": alert_id,
@@ -278,7 +313,7 @@ class ConversationSessionManager:
         """
         session_id = str(uuid.uuid4())
         case_id = self.get_active_case_id_for_user(user_id) if user_id else session_id
-        timestamp_str = datetime.utcnow().isoformat()
+        timestamp_str = datetime.now(timezone.utc).isoformat()
         
         # Write to local cache (essential for test compatibility)
         self.sessions[session_id] = ConversationSession(session_id, case_id, max_history)
@@ -321,44 +356,21 @@ class ConversationSessionManager:
 
     def get_session(self, session_id: str) -> Optional[ConversationSession]:
         """
-        Reconstructs a ConversationSession object from local cache or Supabase logs.
+        Retrieves active session state from cache or queries Supabase for persistent history.
         """
-        # 1. Check local cache first (essential for test compatibility)
         if session_id in self.sessions:
             return self.sessions[session_id]
 
-        # 2. Query Supabase database
         try:
-            # Check if this ID is directly a case_id (the user's ID)
+            # Query Supabase for historical session data
+            # Check if session_id is a known case_id
             res = supabase.table("cases").select("*").eq("id", session_id).execute()
+            is_case_id_lookup = bool(res.data)
             
-            case_id = None
-            is_case_id_lookup = False
+            case_id = session_id if is_case_id_lookup else self.get_active_case_id_for_user(session_id)
+            session = ConversationSession(session_id=session_id, case_id=case_id)
             
-            if res.data:
-                case_id = session_id
-                is_case_id_lookup = True
-            else:
-                # If not, let's search if any check_in matches this ID as session_id in distress_indicators JSONB
-                try:
-                    check_in_lookup = supabase.table("check_ins") \
-                        .select("case_id") \
-                        .eq("distress_indicators->>session_id", session_id) \
-                        .limit(1) \
-                        .execute()
-                    if check_in_lookup.data:
-                        case_id = check_in_lookup.data[0]["case_id"]
-                        res = supabase.table("cases").select("*").eq("id", case_id).execute()
-                except Exception as json_ex:
-                    logger.warning(f"JSONB search failed, trying fallback search: {json_ex}")
-
-            if not case_id or not res.data:
-                logger.warning(f"Case session not found in Supabase: {session_id}")
-                return None
-                
-            session = ConversationSession(session_id, case_id)
-            
-            # Retrieve all history under this case
+            # Fetch check-ins and scores for this case
             checkins_res = supabase.table("check_ins") \
                 .select("*") \
                 .eq("case_id", case_id) \
@@ -383,10 +395,8 @@ class ConversationSessionManager:
             history = []
             # Zip checkins and scores where possible, otherwise process checkins directly
             for idx, checkin in enumerate(checkins_data):
-                try:
-                    ts = datetime.fromisoformat(checkin["timestamp"].replace("Z", "+00:00")).timestamp()
-                except Exception:
-                    ts = time.time()
+                dt_parsed = parse_utc_timestamp(checkin.get("timestamp"))
+                ts = dt_parsed.timestamp() if dt_parsed else time.time()
                     
                 distress_indicators = checkin.get("distress_indicators") or {}
                 voice_features = checkin.get("voice_features") or {}
@@ -432,12 +442,11 @@ class ConversationSessionManager:
             session.history = history
             session.turn_number = len(history)
             
-            case_date = res.data[0].get("enrollment_date")
+            case_date = res.data[0].get("enrollment_date") if res.data else None
             if case_date:
-                try:
-                    session.created_at = datetime.fromisoformat(case_date.replace("Z", "+00:00")).timestamp()
-                except Exception:
-                    pass
+                dt_case = parse_utc_timestamp(case_date)
+                if dt_case:
+                    session.created_at = dt_case.timestamp()
             
             # Put in local cache
             self.sessions[session_id] = session

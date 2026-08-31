@@ -44,7 +44,7 @@ export default function LoginScreen({ onLogin }: Props) {
               </svg>
             </div>
             <div>
-              <span className="text-white text-xl font-bold tracking-wide" style={{ fontFamily: "Manrope, sans-serif" }}>Nirbhaya Mitra</span>
+              <span className="text-white text-xl font-bold tracking-wide" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
               <p className="text-blue-200 text-xs">AI-powered Victim Well-being & Support</p>
             </div>
           </div>
@@ -139,7 +139,7 @@ export default function LoginScreen({ onLogin }: Props) {
                 <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
               </svg>
             </div>
-            <span className="font-bold text-[#1e3a8a]" style={{ fontFamily: "Manrope, sans-serif" }}>Nirbhaya Mitra</span>
+            <span className="font-bold text-[#1e3a8a]" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
           </div>
 
           <div>

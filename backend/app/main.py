@@ -20,10 +20,21 @@ from backend.app.services.text_analysis import analyze_text_signal
 from backend.app.services.recommendation import generate_recommendation
 from pydantic import BaseModel
 from typing import Optional, Union, List, Dict, Any
+from datetime import datetime, timezone, timedelta
 from backend.app.utils.supabase_client import supabase
+from backend.app.utils.timezone_utils import (
+    IST_ZONE,
+    UTC_ZONE,
+    utc_now,
+    utc_now_iso,
+    to_ist,
+    parse_to_utc,
+    parse_utc_timestamp,
+    format_utc_iso,
+    format_ist,
+    get_ist_date_key
+)
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("FastAPIMain")
 
 app = FastAPI(title="SIH Mental Health Monitoring API")
@@ -490,8 +501,9 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             cited_provs = None
             d_val = fusion.get("final_distress_score", 0.0)
             d_val_num = float(d_val) if not isinstance(d_val, str) else 0.0
+            fusion_tier = fusion.get("tier", "LOW")
             
-            if final_response["safety_attention"] or d_val_num >= 0.85:
+            if final_response["safety_attention"] or fusion_tier in ("SEVERE", "CRITICAL", "HIGH") or d_val_num >= 0.60:
                 try:
                     rec_res = generate_recommendation(transcript)
                     rec_text = rec_res.get("recommendation_text")
@@ -686,7 +698,7 @@ def acknowledge_alert(alert_id: str, request: AcknowledgeRequest):
     """
     try:
         from backend.app.utils.supabase_client import supabase
-        timestamp_str = datetime.utcnow().isoformat()
+        timestamp_str = datetime.now(timezone.utc).isoformat()
         res = supabase.table("alerts") \
             .update({
                 "status": "acknowledged",
@@ -719,64 +731,60 @@ def acknowledge_alert(alert_id: str, request: AcknowledgeRequest):
 @app.get("/api/counsellor/cases")
 def get_counsellor_cases(debug: bool = False):
     try:
-        # Fetch cases
+        debug_logs = []
         cases_res = supabase.table("cases").select("*").execute()
         cases_data = cases_res.data or []
+        debug_logs.append(f"Fetched {len(cases_data)} cases")
         
-        # Fetch auth users to map roles
         auth_users = []
         try:
             users_list = supabase.auth.admin.list_users()
             auth_users = users_list if isinstance(users_list, list) else getattr(users_list, "users", [])
+            debug_logs.append(f"Fetched {len(auth_users)} auth users")
         except Exception as e:
-            logger.warning(f"Failed to fetch auth users: {e}")
+            logger.warning(f"Failed to fetch auth users in counsellor dashboard: {e}")
+            debug_logs.append(f"Auth user fetch failed: {e}")
             
         user_map = {}
+        rohan_user = None
+        ananya_user = None
         for u in auth_users:
             meta = getattr(u, "user_metadata", {}) or {}
+            name = meta.get("name", "Unknown User")
             user_map[str(u.id)] = {
-                "name": meta.get("name", "Unknown User"),
+                "id": str(u.id),
+                "name": name,
                 "email": u.email,
                 "role": meta.get("role", "victim")
             }
-            
-        rohan_info = None
-        ananya_info = None
-        for uid, uinfo in user_map.items():
-            if uinfo.get("name") == "Rohan" or "rohan" in uinfo.get("email", "").lower():
-                rohan_info = uinfo
-            if "ananya" in uinfo.get("name", "").lower() or "ananya" in uinfo.get("email", "").lower():
-                ananya_info = uinfo
+            if name == "Rohan" or "rohan" in u.email.lower():
+                rohan_user = user_map[str(u.id)]
+            if "ananya" in name.lower() or "ananya" in u.email.lower():
+                ananya_user = user_map[str(u.id)]
 
-        if not rohan_info:
-            rohan_info = {"name": "Rohan", "email": "rohan@nirbhayamitra.com", "role": "victim"}
-        if not ananya_info:
-            ananya_info = {"name": "Ananya Patel", "email": "ananya@nirbhayamitra.com", "role": "victim"}
-
-        debug_logs = []
         results = []
+        now_utc = utc_now()
         for case in cases_data:
-            case_id = case["id"]
+            case_id = case.get("id")
             nhaa_ref = case.get("nhaa_ref", "") or ""
             
-            user_info = None
-            if nhaa_ref and "ROHAN" in nhaa_ref.upper():
-                user_info = rohan_info.copy()
-            elif nhaa_ref and "ANANYA" in nhaa_ref.upper():
-                user_info = ananya_info.copy()
+            # Map correctly: Rohan Case 1 vs Rohan Case 2 vs Ananya Case 1
+            if nhaa_ref and "ROHAN" in nhaa_ref.upper() and rohan_user:
+                user_info = rohan_user
+            elif nhaa_ref and "ANANYA" in nhaa_ref.upper() and ananya_user:
+                user_info = ananya_user
             else:
                 user_info = user_map.get(str(case_id))
-                
+            
             if not user_info:
                 user_info = {
-                    "name": "Anonymous Case" if not nhaa_ref else f"Case {nhaa_ref}",
-                    "email": "N/A",
+                    "id": case_id,
+                    "name": "Rohan" if "ROHAN" in nhaa_ref.upper() else "Ananya Patel" if "ANANYA" in nhaa_ref.upper() else "Anonymous Patient",
+                    "email": "rohan@nirbhayamitra.com" if "ROHAN" in nhaa_ref.upper() else "ananya@nirbhayamitra.com" if "ANANYA" in nhaa_ref.upper() else "N/A",
                     "role": "victim"
                 }
-            
-            # Skip if user is counsellor
-            if user_info.get("role") == "counsellor":
-                debug_logs.append(f"Skipped counsellor case {case_id}")
+
+            if not case_id:
                 continue
                 
             latest_score = 0.0
@@ -793,17 +801,21 @@ def get_counsellor_cases(debug: bool = False):
                     .limit(1) \
                     .execute()
                 if score_res.data:
-                    latest_score = score_res.data[0].get("total_score", 0.0)
+                    latest_score = score_res.data[0].get("total_score", 0.0) or 0.0
                     trend = score_res.data[0].get("trend", "stable")
-                    s_val = latest_score / 100.0
-                    if s_val <= 0.25:
-                        risk_tier = "LOW"
-                    elif s_val <= 0.50:
-                        risk_tier = "MODERATE"
-                    elif s_val <= 0.75:
-                        risk_tier = "HIGH"
-                    else:
-                        risk_tier = "SEVERE"
+                    sub_an = ((score_res.data[0].get("sub_scores") or {}).get("raw_analysis") or {}).get("fusion_metrics") or {}
+                    tier = sub_an.get("tier")
+                    if not tier:
+                        s_val = latest_score / 100.0
+                        if s_val <= 0.25:
+                            tier = "LOW"
+                        elif s_val <= 0.50:
+                            tier = "MODERATE"
+                        elif s_val <= 0.75:
+                            tier = "HIGH"
+                        else:
+                            tier = "SEVERE"
+                    risk_tier = tier
                 
                 checkin_res = supabase.table("check_ins") \
                     .select("*") \
@@ -814,17 +826,12 @@ def get_counsellor_cases(debug: bool = False):
                 if checkin_res.data:
                     last_checkin = checkin_res.data[0]
                     ts_str = last_checkin.get("timestamp")
-                    last_checkin_timestamp = ts_str
+                    last_checkin_timestamp = format_utc_iso(ts_str) or ""
                     if ts_str:
-                        try:
-                            clean_ts = ts_str.replace("Z", "")
-                            if "+" in clean_ts:
-                                clean_ts = clean_ts.split("+")[0]
-                            dt = datetime.fromisoformat(clean_ts)
-                            elapsed = datetime.utcnow() - dt
+                        dt = parse_to_utc(ts_str)
+                        if dt:
+                            elapsed = now_utc - dt
                             days_since_last_checkin = max(0.0, elapsed.total_seconds() / 86400.0)
-                        except Exception as parse_ex:
-                            logger.warning(f"Failed to parse timestamp {ts_str}: {parse_ex}")
                     distress_indicators = last_checkin.get("distress_indicators") or {}
                     safety_attention = bool(distress_indicators.get("safety_attention", False))
                 
@@ -836,7 +843,7 @@ def get_counsellor_cases(debug: bool = False):
             results.append({
                 "case_id": case_id,
                 "nhaa_ref": nhaa_ref,
-                "enrollment_date": case.get("enrollment_date", ""),
+                "enrollment_date": format_utc_iso(case.get("enrollment_date")) or "",
                 "stage": case.get("stage", "active"),
                 "user": user_info,
                 "latest_distress_score": latest_score,
@@ -961,45 +968,175 @@ def get_case_details(case_id: str):
         trend = "stable"
         risk_tier = "LOW"
         last_interaction = ""
+        explanation_text = ""
+        latest_interaction = None
+        today_summary = None
+        yesterday_summary = None
+        has_active_alert = False
+        active_alert_data = None
+
         try:
-            checkins_res = supabase.table("check_ins").select("timestamp", count="exact").eq("case_id", case_id).execute()
-            checkins_count = checkins_res.count if hasattr(checkins_res, "count") else len(checkins_res.data or [])
+            checkins_res = supabase.table("check_ins").select("*").eq("case_id", case_id).order("timestamp", desc=True).limit(100).execute()
+            checkins_data = checkins_res.data or []
+            checkins_count = len(checkins_data)
             
             score_res = supabase.table("distress_scores") \
                 .select("*") \
                 .eq("case_id", case_id) \
                 .order("timestamp", desc=True) \
+                .limit(100) \
                 .execute()
+            scores_data = score_res.data or []
+            
+            # Check active alerts for this case
+            alert_res = supabase.table("alerts").select("*").eq("case_id", case_id).eq("status", "active").order("created_at", desc=True).limit(1).execute()
+            if alert_res.data:
+                has_active_alert = True
+                active_alert_data = alert_res.data[0]
+                active_alert_data["created_at"] = format_utc_iso(active_alert_data.get("created_at"))
+
+            if scores_data:
+                latest_score_row = scores_data[0]
+                latest_checkin_row = checkins_data[0] if checkins_data else {}
+
+                latest_score = latest_score_row.get("total_score", 0.0) or 0.0
+                trend = latest_score_row.get("trend", "stable")
+                last_interaction = format_utc_iso(latest_score_row.get("timestamp", "")) or ""
+                explanation_text = latest_score_row.get("explanation_text", "")
                 
-            explanation_text = ""
-            if score_res.data:
-                latest_score = score_res.data[0].get("total_score", 0.0)
-                trend = score_res.data[0].get("trend", "stable")
-                last_interaction = score_res.data[0].get("timestamp", "")
-                explanation_text = score_res.data[0].get("explanation_text", "")
-                s_val = latest_score / 100.0
-                if s_val <= 0.25:
-                    risk_tier = "LOW"
-                elif s_val <= 0.50:
-                    risk_tier = "MODERATE"
-                elif s_val <= 0.75:
-                    risk_tier = "HIGH"
+                sub_scores = latest_score_row.get("sub_scores") or {}
+                raw_analysis = sub_scores.get("raw_analysis") or {}
+                di = latest_checkin_row.get("distress_indicators") or {}
+                vf = latest_checkin_row.get("voice_features") or {}
+                fusion_metrics = raw_analysis.get("fusion_metrics") or {}
+
+                text_ao = raw_analysis.get("text_analysis_output") or di.get("text_analysis_output") or {}
+                text_emotions = raw_analysis.get("text_emotions") or di.get("text_emotions") or {}
+                voice_emotions = raw_analysis.get("voice_emotions") or vf.get("voice_emotions") or None
+                conv_feats = raw_analysis.get("conversational_features") or vf.get("conversational_features") or None
+
+                is_voice = bool(voice_emotions or (latest_checkin_row.get("channel") == "voice"))
+
+                # Canonical Text Score (0 - 100%)
+                if fusion_metrics.get("d_text") not in (None, "UNAVAILABLE"):
+                    text_score = round(float(fusion_metrics["d_text"]) * 100)
+                elif text_ao.get("sentiment_score") is not None:
+                    text_score = round(abs(float(text_ao["sentiment_score"])) * 100)
                 else:
-                    risk_tier = "SEVERE"
+                    text_score = round(latest_score)
+
+                # Canonical Voice Score (0 - 100% or None if text-only)
+                if is_voice and fusion_metrics.get("d_voice") not in (None, "UNAVAILABLE"):
+                    voice_score = round(float(fusion_metrics["d_voice"]) * 100)
+                elif is_voice and voice_emotions:
+                    voice_score = round(max(float(v) for v in voice_emotions.values()) * 100)
+                else:
+                    voice_score = None
+
+                # Canonical Fusion Score (0 - 100%)
+                if fusion_metrics.get("d_base") not in (None, "UNAVAILABLE"):
+                    fusion_score = round(float(fusion_metrics["d_base"]) * 100)
+                elif fusion_metrics.get("final_distress_score") not in (None, "UNAVAILABLE"):
+                    fusion_score = round(float(fusion_metrics["final_distress_score"]) * 100)
+                else:
+                    fusion_score = round(latest_score)
+
+                # Canonical Risk Tier
+                tier = fusion_metrics.get("tier")
+                if not tier:
+                    if latest_score >= 75.0:
+                        tier = "SEVERE"
+                    elif latest_score >= 50.0:
+                        tier = "HIGH"
+                    elif latest_score >= 25.0:
+                        tier = "MODERATE"
+                    else:
+                        tier = "LOW"
+                risk_tier = tier
+
+                latest_interaction = {
+                    "timestamp": format_utc_iso(latest_score_row.get("timestamp")),
+                    "channel": "voice" if is_voice else "text",
+                    "transcript": latest_checkin_row.get("raw_text") or latest_checkin_row.get("transcript") or "",
+                    "text_score": text_score,
+                    "voice_score": voice_score,
+                    "fusion_score": fusion_score,
+                    "final_distress_score": round(latest_score),
+                    "final_distress_norm": round(latest_score / 100.0, 4),
+                    "risk_tier": risk_tier,
+                    "safety_attention": bool(di.get("safety_attention") or raw_analysis.get("safety_attention")),
+                    "conversation_state": di.get("conversation_state") or raw_analysis.get("conversation_state") or "NORMAL",
+                    "explanation_text": explanation_text,
+                    "text_emotions": text_emotions,
+                    "voice_emotions": voice_emotions,
+                    "conversational_features": conv_feats,
+                    "fusion_metrics": fusion_metrics,
+                    "is_voice": is_voice
+                }
+
+                # Calculate Today and Yesterday in IST
+                now_ist_key = get_ist_date_key(utc_now())
+                yesterday_ist_key = get_ist_date_key(utc_now() - timedelta(days=1))
+                
+                today_scores = []
+                today_has_voice = False
+                yesterday_scores = []
+                yesterday_has_voice = False
+
+                for sc in scores_data:
+                    sc_key = get_ist_date_key(sc.get("timestamp"))
+                    sc_val = sc.get("total_score", 0.0) or 0.0
+                    sc_an = (sc.get("sub_scores") or {}).get("raw_analysis") or {}
+                    sc_v = bool(sc_an.get("voice_emotions"))
+                    if sc_key == now_ist_key:
+                        today_scores.append(sc_val)
+                        if sc_v: today_has_voice = True
+                    elif sc_key == yesterday_ist_key:
+                        yesterday_scores.append(sc_val)
+                        if sc_v: yesterday_has_voice = True
+
+                def build_day_summary(scores_list, has_v, date_key):
+                    if not scores_list:
+                        return None
+                    avg_s = round(sum(scores_list) / len(scores_list))
+                    lat_s = round(scores_list[0])
+                    d_tier = "SEVERE" if lat_s >= 75 else "HIGH" if lat_s >= 50 else "MODERATE" if lat_s >= 25 else "LOW"
+                    return {
+                        "turns_count": len(scores_list),
+                        "avg_distress_score": avg_s,
+                        "latest_distress_score": lat_s,
+                        "risk_tier": d_tier,
+                        "has_voice": has_v,
+                        "has_text": True,
+                        "date_ist": date_key
+                    }
+
+                today_summary = build_day_summary(today_scores, today_has_voice, now_ist_key)
+                yesterday_summary = build_day_summary(yesterday_scores, yesterday_has_voice, yesterday_ist_key)
+
         except Exception as ex:
             logger.warning(f"Error querying case metrics: {ex}")
             
+        case_dict = dict(case)
+        case_dict["enrollment_date"] = format_utc_iso(case.get("enrollment_date")) or ""
+
         return {
-            "case": case,
+            "case": case_dict,
             "user": user_info,
             "summary": {
                 "current_distress_score": latest_score / 100.0,
+                "current_distress_percent": round(latest_score),
                 "risk_tier": risk_tier,
                 "trend": trend,
                 "total_check_ins": checkins_count,
                 "last_interaction": last_interaction,
-                "explanation_text": explanation_text
-            }
+                "explanation_text": explanation_text,
+                "has_active_alert": has_active_alert,
+                "active_alert": active_alert_data
+            },
+            "latest_interaction": latest_interaction,
+            "today_summary": today_summary,
+            "yesterday_summary": yesterday_summary
         }
     except HTTPException as he:
         raise he
@@ -1038,7 +1175,7 @@ def get_case_history(case_id: str):
             .order("timestamp", desc=False)
             .execute()
         )
-        distress_rows = ds_res.data or []
+        distress_scores = ds_res.data or []
 
         if check_ins:
             # ── 4. Build history list from check_ins + nearest distress score ──
@@ -1048,23 +1185,21 @@ def get_case_history(case_id: str):
             
             # Pre-parse distress_score timestamps to unix once
             ds_parsed: list = []
-            for row in distress_rows:
+            for row in distress_scores:
                 ts_raw = row.get("timestamp", "")
-                try:
-                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                dt = parse_to_utc(ts_raw)
+                if dt:
                     ds_parsed.append((dt.timestamp(), row))
-                except Exception:
+                else:
                     ds_parsed.append((0.0, row))
 
             history = []
             for ci in check_ins:
                 # Convert check_in timestamp
                 ts_raw = ci.get("timestamp", "")
-                try:
-                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                    ts_unix = dt.timestamp()
-                except Exception:
-                    ts_unix = 0.0
+                dt = parse_to_utc(ts_raw)
+                ts_unix = dt.timestamp() if dt else 0.0
+                ts_iso = format_utc_iso(dt) if dt else ""
 
                 # Find the nearest distress_score within 30 seconds
                 ds_row: dict = {}
@@ -1115,7 +1250,8 @@ def get_case_history(case_id: str):
                 }
 
                 turn = {
-                    "timestamp": ts_unix,
+                    "timestamp": ts_iso,
+                    "timestamp_unix": ts_unix,
                     "transcript": ci.get("raw_text") or ci.get("transcript", ""),
                     "distress_score": distress_score_norm,
                     "safety_attention": di.get("safety_attention") or raw_analysis.get("safety_attention") or False,
@@ -1138,7 +1274,14 @@ def get_case_history(case_id: str):
         # ── 5. Fallback: in-memory session (only useful during live session) ───
         session = conversation_session_manager.get_session(case_id)
         if session:
-            return session.history
+            formatted_history = []
+            for t in session.history:
+                t_copy = dict(t)
+                raw_t = t.get("timestamp")
+                t_copy["timestamp"] = format_utc_iso(raw_t) or ""
+                t_copy["timestamp_unix"] = parse_to_utc(raw_t).timestamp() if parse_to_utc(raw_t) else 0.0
+                formatted_history.append(t_copy)
+            return formatted_history
         return []
 
     except HTTPException as he:
@@ -1183,6 +1326,7 @@ def get_all_alerts():
         for alert in alerts:
             cid = alert.get("case_id")
             nhaa_ref = case_ref_map.get(cid, "") or ""
+            alert["created_at"] = format_utc_iso(alert.get("created_at")) or ""
             
             if nhaa_ref and "ROHAN" in nhaa_ref.upper():
                 alert["user_name"] = rohan_name
@@ -1194,5 +1338,119 @@ def get_all_alerts():
         return alerts
     except Exception as e:
         logger.error(f"Failed to get alerts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==============================================================================
+# BIOSIGNAL PROTOTYPE ENDPOINTS (Additive / Prototype Only)
+# ==============================================================================
+
+from backend.app.services.biosignal_service import biosignal_provider
+
+@app.get("/api/biosignals/{case_id}")
+def get_case_biosignals(case_id: str):
+    """
+    Returns prototype biosignal telemetry and sleep history for a specific case.
+    Preserves strict case isolation (e.g. Rohan Case 2 vs Rohan Case 1 vs Ananya Case 1).
+    """
+    try:
+        telemetry = biosignal_provider.get_telemetry(case_id)
+        sleep_history = biosignal_provider.get_sleep_history(case_id)
+        return {
+            **telemetry,
+            "sleep_history": sleep_history
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch biosignals for case {case_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/biosignals/{case_id}/holistic")
+def get_case_holistic_assessment(case_id: str):
+    """
+    Combines latest multimodal conversational metrics (Text + Voice + Fusion) with
+    prototype biosignal observations to generate holistic decision-support insights.
+    """
+    try:
+        # Pull latest turn metrics from Supabase if available
+        text_score = None
+        voice_score = None
+        fusion_score = None
+        risk_tier = None
+        safety_flag = False
+
+        ds_res = supabase.table("distress_scores") \
+            .select("*") \
+            .eq("case_id", case_id) \
+            .order("timestamp", desc=True) \
+            .limit(1) \
+            .execute()
+
+        if ds_res.data and len(ds_res.data) > 0:
+            ds_row = ds_res.data[0]
+            raw_analysis = (ds_row.get("sub_scores") or {}).get("raw_analysis") or {}
+            fm = raw_analysis.get("fusion_metrics") or {}
+            
+            total_raw = ds_row.get("total_score", 0.0) or 0.0
+            fusion_score = total_raw / 100.0
+            risk_tier = ds_row.get("risk_tier") or fm.get("tier")
+
+            # Extract text / voice sub-scores if present
+            d_text = fm.get("d_text")
+            if d_text is not None and d_text != "UNAVAILABLE":
+                text_score = float(d_text)
+            else:
+                to = raw_analysis.get("text_analysis_output") or {}
+                if "sentiment_score" in to:
+                    text_score = abs(float(to["sentiment_score"]))
+
+            d_voice = fm.get("d_voice")
+            if d_voice is not None and d_voice != "UNAVAILABLE":
+                voice_score = float(d_voice)
+
+            safety_flag = bool(raw_analysis.get("safety_attention", False))
+
+        holistic = biosignal_provider.get_holistic_assessment(
+            case_id=case_id,
+            text_score=text_score,
+            voice_score=voice_score,
+            fusion_score=fusion_score,
+            risk_tier=risk_tier,
+            safety_flag=safety_flag
+        )
+        return holistic
+    except Exception as e:
+        logger.error(f"Failed to fetch holistic assessment for case {case_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/biosignals/{case_id}/sync")
+def sync_case_biosignals(case_id: str):
+    """
+    Simulates a device sync event for the prototype biosignal wearable.
+    """
+    try:
+        telemetry = biosignal_provider.get_telemetry(case_id)
+        return {
+            "status": "synced",
+            "message": "Simulated device telemetry synchronized successfully.",
+            "last_sync_ist": telemetry["last_sync_ist"],
+            "telemetry": telemetry
+        }
+    except Exception as e:
+        logger.error(f"Failed to sync biosignals for case {case_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/biosignals/user/{user_id}")
+def get_user_biosignals(user_id: str):
+    """
+    Resolves the active case for a user and returns device status and telemetry for the victim UI.
+    """
+    try:
+        active_case_id = conversation_session_manager.get_active_case_id_for_user(user_id)
+        if not active_case_id:
+            # Fallback to user_id as case_id
+            active_case_id = user_id
+        telemetry = biosignal_provider.get_telemetry(active_case_id)
+        return telemetry
+    except Exception as e:
+        logger.error(f"Failed to get user biosignals for {user_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
