@@ -56,7 +56,12 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   // Bump this to force case details to re-fetch after a Sync (so Today/Yesterday recalculates)
   const [caseDetailsRefreshKey, setCaseDetailsRefreshKey] = useState(0);
 
-  const navItems = ["Dashboard", "Cases", "Analytics", "Alerts", "Settings"];
+  // Biosignal Prototype State
+  const [bioData, setBioData] = useState<any>(null);
+  const [holisticData, setHolisticData] = useState<any>(null);
+  const [bioSyncLoading, setBioSyncLoading] = useState(false);
+
+  const navItems = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Settings"];
 
   const getApiUrl = (path: string) => {
     const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -102,27 +107,71 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     fetchDashboardData();
   }, []);
 
+  // Fetch Biosignal and Holistic Data for Selected Case
+  async function fetchBiosignals(caseId: string) {
+    try {
+      const bioRes = await fetch(getApiUrl(`/api/biosignals/${caseId}`));
+      const holRes = await fetch(getApiUrl(`/api/biosignals/${caseId}/holistic`));
+      if (bioRes.ok) {
+        const d = await bioRes.json();
+        setBioData(d);
+      }
+      if (holRes.ok) {
+        const h = await holRes.json();
+        setHolisticData(h);
+      }
+    } catch (err) {
+      console.error("Failed to load biosignals for case:", caseId, err);
+    }
+  }
+
+  async function syncBiosignals(caseId: string) {
+    try {
+      setBioSyncLoading(true);
+      const res = await fetch(getApiUrl(`/api/biosignals/${caseId}/sync`), { method: "POST" });
+      if (res.ok) {
+        await fetchBiosignals(caseId);
+      }
+    } catch (err) {
+      console.error("Failed to sync biosignals:", err);
+    } finally {
+      setBioSyncLoading(false);
+    }
+  }
+
   useEffect(() => {
-    // Clear details during case transition (not on refresh — avoid flicker)
+    if (selectedCaseId) {
+      fetchBiosignals(selectedCaseId);
+    }
+  }, [selectedCaseId, caseDetailsRefreshKey]);
+
+  useEffect(() => {
+    // Clear details immediately during case transition to avoid stale state mixing
+    setSelectedCaseDetails(null);
     if (!selectedCaseId) {
-      setSelectedCaseDetails(null);
       return;
     }
 
+    let isMounted = true;
     async function fetchCaseDetails() {
       try {
         // Use persistent Supabase history endpoint (not in-memory /api/conversation/)
         const detailsRes = await fetch(getApiUrl(`/api/counsellor/cases/${selectedCaseId}`));
         const historyRes = await fetch(getApiUrl(`/api/counsellor/cases/${selectedCaseId}/history`));
         
-        if (detailsRes.ok && historyRes.ok) {
+        if (detailsRes.ok && isMounted) {
           const detailsData = await detailsRes.json();
-          const historyData = await historyRes.json();
-          // historyData is a direct array from the /history endpoint
-          setSelectedCaseDetails({
-            ...detailsData,
-            history: Array.isArray(historyData) ? historyData : (historyData.history || [])
-          });
+          let historyArr: any[] = [];
+          if (historyRes.ok) {
+            const historyData = await historyRes.json();
+            historyArr = Array.isArray(historyData) ? historyData : (historyData.history || []);
+          }
+          if (isMounted && detailsData.case?.id === selectedCaseId) {
+            setSelectedCaseDetails({
+              ...detailsData,
+              history: historyArr
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to load details for case:", selectedCaseId, err);
@@ -130,6 +179,9 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     }
 
     fetchCaseDetails();
+    return () => {
+      isMounted = false;
+    };
   // caseDetailsRefreshKey bumps whenever fetchDashboardData (Sync) completes
   }, [selectedCaseId, caseDetailsRefreshKey]);
 
@@ -149,6 +201,100 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     }
   }
 
+  const IST_TIMEZONE = "Asia/Kolkata";
+
+  function parseToDate(dateInput: string | number | Date | null | undefined): Date | null {
+    if (!dateInput) return null;
+    if (dateInput instanceof Date) return isNaN(dateInput.getTime()) ? null : dateInput;
+    if (typeof dateInput === "number") {
+      const ms = dateInput < 1e11 ? dateInput * 1000 : dateInput;
+      const d = new Date(ms);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof dateInput === "string") {
+      let str = dateInput.trim();
+      if (!str) return null;
+      if (!isNaN(Number(str)) && !str.includes("T") && !str.includes("-")) {
+        const num = Number(str);
+        const ms = num < 1e11 ? num * 1000 : num;
+        const d = new Date(ms);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      // If naive ISO string (e.g. from database timestamp column without trailing Z or offset),
+      // append Z so that JavaScript parses it as UTC instead of browser local time!
+      if (str.includes("T") && !str.endsWith("Z") && !/[+-]\d{2}(:\d{2})?$/.test(str)) {
+        str = str + "Z";
+      }
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+
+  function formatISTDateTime(dateInput: string | number | Date | null | undefined): string {
+    const d = parseToDate(dateInput);
+    if (!d) return "N/A";
+    try {
+      return new Intl.DateTimeFormat("en-IN", {
+        timeZone: IST_TIMEZONE,
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      }).format(d);
+    } catch {
+      return "N/A";
+    }
+  }
+
+  function formatISTDate(dateInput: string | number | Date | null | undefined): string {
+    const d = parseToDate(dateInput);
+    if (!d) return "N/A";
+    try {
+      return new Intl.DateTimeFormat("en-IN", {
+        timeZone: IST_TIMEZONE,
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(d);
+    } catch {
+      return "N/A";
+    }
+  }
+
+  function getISTDateKey(dateInput: string | number | Date | null | undefined): string {
+    const d = parseToDate(dateInput);
+    if (!d) return "";
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: IST_TIMEZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    } catch {
+      return "";
+    }
+  }
+
+  function formatRelativeTimeIST(dateInput: string | number | Date | null | undefined): string {
+    const d = parseToDate(dateInput);
+    if (!d) return "N/A";
+    const now = new Date();
+    const diffSec = Math.max(0, Math.floor((now.getTime() - d.getTime()) / 1000));
+    if (diffSec < 60) return "Just now";
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)} minutes ago`;
+    if (diffSec < 86400) {
+      const hrs = Math.floor(diffSec / 3600);
+      return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+    }
+    const days = Math.floor(diffSec / 86400);
+    return `${days} day${days > 1 ? "s" : ""} ago`;
+  }
+
   const activeCasesCount = cases.filter(c => c.stage === "active").length;
   const highRiskCount = cases.filter(c => c.risk_tier === "SEVERE" || c.risk_tier === "HIGH").length;
   const moderateRiskCount = cases.filter(c => c.risk_tier === "MODERATE").length;
@@ -157,9 +303,16 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const activeAlerts = alerts.filter(a => a.status === "active");
 
   const chartData = selectedCaseDetails?.history && selectedCaseDetails.history.length > 0
-    ? selectedCaseDetails.history.map((turn: any, index: number) => {
-        const dateObj = turn.timestamp ? new Date(turn.timestamp * 1000) : new Date();
-        const dayStr = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    ? selectedCaseDetails.history.map((turn: any) => {
+        const dateObj = parseToDate(turn.timestamp || turn.timestamp_unix) || new Date();
+        const dayStr = new Intl.DateTimeFormat("en-IN", {
+          timeZone: IST_TIMEZONE,
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        }).format(dateObj);
         return {
           day: dayStr,
           distress: Math.round((turn.distress_score || 0.0) * 100),
@@ -168,56 +321,24 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     : [];
 
   const selectedCase = cases.find(c => c.case_id === selectedCaseId);
-  const latestTurn = selectedCaseDetails?.history && selectedCaseDetails.history.length > 0
-    ? selectedCaseDetails.history[selectedCaseDetails.history.length - 1]
-    : null;
-
-  // Helper to split history into yesterday vs today
+  const latestInteraction = selectedCaseDetails?.latest_interaction;
   const history = selectedCaseDetails?.history || [];
-  
+  const latestTurn = latestInteraction || (history.length > 0 ? history[history.length - 1] : null);
+
+  // Helper to get daily breakdown using authoritative backend summaries or computed fallback
   const getDailyBreakdown = () => {
-    if (history.length === 0) return null;
-    
-    const now = new Date();
-    
-    // Today boundary (00:00:00 local time)
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
-    // Yesterday boundary (00:00:00 yesterday local time to todayStart)
-    const yesterdayStart = todayStart - 86400;
-    
-    const todayTurns = history.filter((t: any) => t.timestamp >= todayStart);
-    const yesterdayTurns = history.filter((t: any) => t.timestamp >= yesterdayStart && t.timestamp < todayStart);
-    
-    const getTurnMetrics = (turns: any[]) => {
-      if (turns.length === 0) return null;
-      const latest = turns[turns.length - 1];
-      const hasVoice = turns.some((t: any) => t.internal_analysis?.voice_emotions !== undefined && t.internal_analysis?.voice_emotions !== null);
-      const hasText = turns.some((t: any) => t.internal_analysis?.text_emotions !== undefined && t.internal_analysis?.text_emotions !== null);
-      
-      const distressScore = Math.round(latest.distress_score * 100);
-      let riskTier = "LOW";
-      if (distressScore > 85) riskTier = "SEVERE";
-      else if (distressScore > 60) riskTier = "HIGH";
-      else if (distressScore > 30) riskTier = "MODERATE";
-      
-      return {
-        latestTurn: latest,
-        distressScore,
-        riskTier,
-        hasVoice,
-        hasText,
-        turnsCount: turns.length
-      };
-    };
-    
-    const todayMetrics = getTurnMetrics(todayTurns);
-    const yesterdayMetrics = getTurnMetrics(yesterdayTurns);
-    
+    if (!selectedCaseDetails) return null;
+
+    const todaySummary = selectedCaseDetails.today_summary;
+    const yesterdaySummary = selectedCaseDetails.yesterday_summary;
+
+    if (!todaySummary && !yesterdaySummary && history.length === 0) return null;
+
     let changeStatus = "INSUFFICIENT_DATA";
     let changeValue = 0;
-    
-    if (todayMetrics && yesterdayMetrics) {
-      changeValue = todayMetrics.distressScore - yesterdayMetrics.distressScore;
+
+    if (todaySummary && yesterdaySummary) {
+      changeValue = todaySummary.latest_distress_score - yesterdaySummary.latest_distress_score;
       if (changeValue > 5) {
         changeStatus = "WORSENING";
       } else if (changeValue < -5) {
@@ -226,12 +347,47 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         changeStatus = "STABLE";
       }
     }
+
+    const now = new Date();
+    const todayISTKey = getISTDateKey(now);
+    const yesterdayISTKey = getISTDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     
+    const todayTurns = history.filter((t: any) => getISTDateKey(t.timestamp || t.timestamp_unix) === todayISTKey);
+    const yesterdayTurns = history.filter((t: any) => getISTDateKey(t.timestamp || t.timestamp_unix) === yesterdayISTKey);
+
     return {
       todayTurns,
       yesterdayTurns,
-      todayMetrics,
-      yesterdayMetrics,
+      todayMetrics: todaySummary ? {
+        distressScore: todaySummary.latest_distress_score,
+        riskTier: todaySummary.risk_tier,
+        hasVoice: todaySummary.has_voice,
+        hasText: todaySummary.has_text,
+        turnsCount: todaySummary.turns_count,
+        latestTime: latestInteraction?.timestamp ? formatISTDateTime(latestInteraction.timestamp) : "Today",
+      } : (todayTurns.length > 0 ? {
+        distressScore: Math.round((todayTurns[todayTurns.length - 1].distress_score || 0) * 100),
+        riskTier: todayTurns[todayTurns.length - 1].risk_tier || "LOW",
+        hasVoice: todayTurns.some((t: any) => t.internal_analysis?.voice_emotions),
+        hasText: true,
+        turnsCount: todayTurns.length,
+        latestTime: formatISTDateTime(todayTurns[todayTurns.length - 1].timestamp),
+      } : null),
+      yesterdayMetrics: yesterdaySummary ? {
+        distressScore: yesterdaySummary.latest_distress_score,
+        riskTier: yesterdaySummary.risk_tier,
+        hasVoice: yesterdaySummary.has_voice,
+        hasText: yesterdaySummary.has_text,
+        turnsCount: yesterdaySummary.turns_count,
+        latestTime: "Yesterday",
+      } : (yesterdayTurns.length > 0 ? {
+        distressScore: Math.round((yesterdayTurns[yesterdayTurns.length - 1].distress_score || 0) * 100),
+        riskTier: yesterdayTurns[yesterdayTurns.length - 1].risk_tier || "LOW",
+        hasVoice: yesterdayTurns.some((t: any) => t.internal_analysis?.voice_emotions),
+        hasText: true,
+        turnsCount: yesterdayTurns.length,
+        latestTime: formatISTDateTime(yesterdayTurns[yesterdayTurns.length - 1].timestamp),
+      } : null),
       changeStatus,
       changeValue
     };
@@ -249,9 +405,9 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "#0f172a" }}>
-              <span className="text-white font-bold">NM</span>
+              <span className="text-white font-bold">MS</span>
             </div>
-            <span className="font-bold text-[#0f172a] text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Nirbhaya Mitra</span>
+            <span className="font-bold text-[#0f172a] text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
           </div>
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => (
@@ -419,9 +575,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                                 </span>
                               </td>
                               <td className="px-4 py-4 text-slate-700 text-xs font-medium">
-                                {c.days_since_last_checkin !== undefined ? (
-                                  c.days_since_last_checkin < 0.1 ? "Just now" :
-                                  c.days_since_last_checkin < 1.0 ? `${(c.days_since_last_checkin * 24).toFixed(0)} hours ago` :
+                                {c.days_since_last_checkin !== undefined && c.days_since_last_checkin !== null ? (
+                                  c.days_since_last_checkin < 0.0007 ? "Just now" :
+                                  c.days_since_last_checkin < 0.0416 ? `${Math.max(1, Math.round(c.days_since_last_checkin * 1440))} minutes ago` :
+                                  c.days_since_last_checkin < 1.0 ? `${Math.max(1, Math.round(c.days_since_last_checkin * 24))} hours ago` :
                                   `${c.days_since_last_checkin.toFixed(1)} days ago`
                                 ) : "N/A"}
                               </td>
@@ -537,7 +694,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-2">
-                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">Yesterday</div>
+                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">Yesterday (IST)</div>
                       {dailyBreakdown.yesterdayMetrics ? (
                         <div className="space-y-1">
                           <div className="text-2xl font-black text-slate-800">{dailyBreakdown.yesterdayMetrics.distressScore}%</div>
@@ -550,7 +707,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                     </div>
 
                     <div className="p-4 bg-teal-50/20 border border-teal-100 rounded-xl space-y-2">
-                      <div className="text-xs text-teal-600 font-bold uppercase tracking-wider">Today</div>
+                      <div className="text-xs text-teal-600 font-bold uppercase tracking-wider">Today (IST)</div>
                       {dailyBreakdown.todayMetrics ? (
                         <div className="space-y-1">
                           <div className="text-2xl font-black text-teal-800">{dailyBreakdown.todayMetrics.distressScore}%</div>
@@ -574,24 +731,110 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
                 {/* Mental Status & Modality Details Card */}
                 <div className="rounded-2xl p-5 border border-slate-200 bg-white shadow-xs space-y-4">
-                  <h3 className="font-bold text-slate-900 text-sm">Contributing Modality Signals</h3>
+                  <h3 className="font-bold text-slate-900 text-sm flex items-center justify-between">
+                    <span>Contributing Modality Signals & Fusion</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      selectedCaseDetails?.summary?.has_active_alert
+                        ? "bg-red-100 text-red-700 border border-red-200"
+                        : "bg-teal-50 text-teal-700 border border-teal-200"
+                    }`}>
+                      Alert: {selectedCaseDetails?.summary?.has_active_alert ? "ACTIVE" : "NONE"}
+                    </span>
+                  </h3>
                   
                   <div className="space-y-3">
+                    {/* Multimodal Score Matrix */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                      <div>
+                        <div className="text-[10px] text-slate-500 font-bold uppercase">Text Score</div>
+                        <div className="font-extrabold text-slate-800 text-sm mt-0.5">
+                          {(() => {
+                            if (latestTurn?.text_score !== undefined && latestTurn?.text_score !== null) {
+                              return `${latestTurn.text_score}%`;
+                            }
+                            const fm = latestTurn?.internal_analysis?.fusion_metrics;
+                            if (fm && fm.d_text !== undefined && fm.d_text !== "UNAVAILABLE") {
+                              return `${Math.round(Number(fm.d_text) * 100)}%`;
+                            }
+                            const to = latestTurn?.internal_analysis?.text_analysis_output;
+                            if (to && to.sentiment_score !== undefined) {
+                              return `${Math.round(Math.abs(to.sentiment_score) * 100)}%`;
+                            }
+                            return latestTurn ? `${Math.round((latestTurn.distress_score || 0) * 100)}%` : "N/A";
+                          })()}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-500 font-bold uppercase">Voice Score</div>
+                        <div className="font-extrabold text-slate-800 text-sm mt-0.5">
+                          {(() => {
+                            if (latestTurn?.voice_score !== undefined && latestTurn?.voice_score !== null) {
+                              return `${latestTurn.voice_score}%`;
+                            }
+                            const fm = latestTurn?.internal_analysis?.fusion_metrics;
+                            if (fm && fm.d_voice !== undefined && fm.d_voice !== "UNAVAILABLE") {
+                              return `${Math.round(Number(fm.d_voice) * 100)}%`;
+                            }
+                            if (latestTurn?.is_voice && latestTurn?.voice_emotions) {
+                              const vVals = Object.values(latestTurn.voice_emotions) as number[];
+                              return vVals.length ? `${Math.round(Math.max(...vVals) * 100)}%` : "No voice data";
+                            }
+                            if (latestTurn?.internal_analysis?.voice_emotions) {
+                              const vVals = Object.values(latestTurn.internal_analysis.voice_emotions) as number[];
+                              return vVals.length ? `${Math.round(Math.max(...vVals) * 100)}%` : "No voice data";
+                            }
+                            return "No voice data";
+                          })()}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-teal-700 font-bold uppercase">Fusion Score</div>
+                        <div className="font-extrabold text-teal-800 text-sm mt-0.5">
+                          {(() => {
+                            if (latestTurn?.fusion_score !== undefined && latestTurn?.fusion_score !== null) {
+                              return `${latestTurn.fusion_score}%`;
+                            }
+                            const fm = latestTurn?.internal_analysis?.fusion_metrics;
+                            if (fm && fm.d_base !== undefined && fm.d_base !== "UNAVAILABLE") {
+                              return `${Math.round(Number(fm.d_base) * 100)}%`;
+                            }
+                            if (fm && fm.final_distress_score !== undefined && fm.final_distress_score !== "UNAVAILABLE") {
+                              return `${Math.round(Number(fm.final_distress_score) * 100)}%`;
+                            }
+                            return latestTurn ? `${Math.round((latestTurn.distress_score || 0) * 100)}%` : "N/A";
+                          })()}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-red-600 font-bold uppercase">Final Distress</div>
+                        <div className="font-extrabold text-red-600 text-sm mt-0.5">
+                          {(() => {
+                            if (latestTurn?.final_distress_score !== undefined && latestTurn?.final_distress_score !== null) {
+                              return `${latestTurn.final_distress_score}%`;
+                            }
+                            return latestTurn ? `${Math.round((latestTurn.distress_score || 0) * 100)}%` : "N/A";
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Text Modality Signal */}
                     <div className="space-y-1 text-xs">
                       <div className="flex justify-between font-semibold">
                         <span className="text-slate-700">Text Sentiment / Emotions</span>
                         <span className="text-slate-900">
-                          {latestTurn?.internal_analysis?.text_analysis_output?.emotion_category 
-                            ? `Category: ${latestTurn.internal_analysis.text_analysis_output.emotion_category} (${latestTurn.internal_analysis.text_analysis_output.emotion_intensity})`
-                            : "N/A"}
+                          {latestTurn?.text_emotions && Object.keys(latestTurn.text_emotions).length > 0
+                            ? `Emotions logged (${Object.keys(latestTurn.text_emotions).length})`
+                            : latestTurn?.internal_analysis?.text_analysis_output?.emotion_category 
+                            ? `Category: ${latestTurn.internal_analysis.text_analysis_output.emotion_category}`
+                            : "Text logged"}
                         </span>
                       </div>
-                      {latestTurn?.internal_analysis?.text_emotions && (
+                      {(latestTurn?.text_emotions || latestTurn?.internal_analysis?.text_emotions) && (
                         <div className="flex gap-2 flex-wrap mt-1">
-                          {Object.entries(latestTurn.internal_analysis.text_emotions).map(([em, val]: any) => (
+                          {Object.entries(latestTurn.text_emotions || latestTurn.internal_analysis.text_emotions).map(([em, val]: any) => (
                             <span key={em} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600 font-semibold uppercase">
-                              {em}: {Math.round(val * 100)}%
+                              {em}: {Math.round(Number(val) * 100)}%
                             </span>
                           ))}
                         </div>
@@ -603,37 +846,40 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       <div className="flex justify-between font-semibold">
                         <span className="text-slate-700">Voice Acoustic Features</span>
                         <span className="text-slate-900">
-                          {latestTurn?.internal_analysis?.voice_emotions 
+                          {latestTurn?.is_voice || latestTurn?.voice_emotions || latestTurn?.internal_analysis?.voice_emotions
                             ? "Acoustic data active"
-                            : "No voice features (text check-in)"}
+                            : "No voice data for this interaction (Text check-in)"}
                         </span>
                       </div>
-                      {latestTurn?.internal_analysis?.voice_emotions ? (
+                      {(latestTurn?.is_voice || latestTurn?.voice_emotions || latestTurn?.internal_analysis?.voice_emotions) ? (
                         <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-600 font-medium mt-1">
-                          <div>• Fillers: {latestTurn.internal_analysis.conversational_features?.filler_count || 0}</div>
-                          <div>• Pauses: {(latestTurn.internal_analysis.conversational_features?.pause_duration || 0).toFixed(2)}s</div>
-                          <div>• Pitch mean: {(latestTurn.internal_analysis.conversational_features?.pitch_mean_hz ?? latestTurn.internal_analysis.conversational_features?.pitch_mean ?? latestTurn.internal_analysis.conversational_features?.pitch_variability_hz ?? 0).toFixed(1)} Hz</div>
-                          <div>• Tone: {Object.entries(latestTurn.internal_analysis.voice_emotions).sort((a: any, b: any) => b[1] - a[1])[0]?.[0]}</div>
+                          <div>• Fillers: {latestTurn.conversational_features?.filler_count || latestTurn.internal_analysis?.conversational_features?.filler_count || 0}</div>
+                          <div>• Pauses: {(latestTurn.conversational_features?.pause_duration || latestTurn.internal_analysis?.conversational_features?.pause_duration || 0).toFixed(2)}s</div>
+                          <div>• Pitch mean: {(latestTurn.conversational_features?.pitch_mean_hz ?? latestTurn.internal_analysis?.conversational_features?.pitch_mean_hz ?? latestTurn.internal_analysis?.conversational_features?.pitch_mean ?? 0).toFixed(1)} Hz</div>
+                          <div>• Tone: {Object.entries(latestTurn.voice_emotions || latestTurn.internal_analysis?.voice_emotions || {}).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || "Neutral"}</div>
                         </div>
                       ) : (
-                        <div className="text-[10px] text-slate-400 italic mt-1">No acoustic logs available for the last interaction.</div>
+                        <div className="text-[10px] text-slate-400 italic mt-1">No acoustic features recorded for this interaction.</div>
                       )}
                     </div>
                     
                     {/* Fusion Signal */}
-                    {latestTurn?.internal_analysis?.fusion_metrics && (
-                      <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
-                        <div className="flex justify-between font-semibold">
-                          <span className="text-slate-700">Multimodal Fusion Details</span>
-                          <span className="text-red-600 font-bold">
-                            {latestTurn.internal_analysis.fusion_metrics.tier} Risk Tier
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-600 leading-relaxed mt-1">
-                          Combined distress rating is computed via {latestTurn.internal_analysis.voice_emotions ? "acoustic and text fusion analysis" : "text sentiment baseline"}.
-                        </div>
+                    <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
+                      <div className="flex justify-between font-semibold">
+                        <span className="text-slate-700">Multimodal Fusion Risk Tier</span>
+                        <span className={`font-bold ${
+                          (latestTurn?.risk_tier === "SEVERE" || latestTurn?.risk_tier === "HIGH") ? "text-red-600" :
+                          latestTurn?.risk_tier === "MODERATE" ? "text-amber-600" : "text-green-600"
+                        }`}>
+                          {latestTurn?.risk_tier || "LOW"} Risk Tier
+                        </span>
                       </div>
-                    )}
+                      <div className="text-[10px] text-slate-600 leading-relaxed mt-1">
+                        {latestTurn?.is_voice
+                          ? "Combined distress rating is computed via acoustic and text fusion analysis."
+                          : "Distress rating is computed via text sentiment and linguistic analysis."}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -716,8 +962,11 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             <div className="lg:col-span-2 space-y-6">
               {selectedCaseDetails ? (() => {
                 const renderHistoryTurn = (turn: any) => {
-                  const dateLabel = new Date(turn.timestamp * 1000).toLocaleString();
+                  const dateLabel = formatISTDateTime(turn.timestamp);
                   const isVoice = turn.internal_analysis?.voice_emotions !== undefined && turn.internal_analysis?.voice_emotions !== null;
+                  const fm = turn.internal_analysis?.fusion_metrics;
+                  const tier = fm?.tier || turn.risk_tier || (turn.distress_score > 0.75 ? "SEVERE" : turn.distress_score > 0.5 ? "HIGH" : turn.distress_score > 0.25 ? "MODERATE" : "LOW");
+                  const isAlert = turn.safety_attention || turn.distress_score >= 0.6 || tier === "SEVERE" || tier === "HIGH";
                   
                   return (
                     <div key={turn.turn_number} className="rounded-2xl p-5 border border-slate-200 bg-white space-y-4 shadow-xs">
@@ -727,7 +976,35 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isVoice ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
                             Channel: {isVoice ? "Voice" : "Text"}
                           </span>
-                          <span className="text-xs font-bold text-red-600">Score: {Math.round(turn.distress_score * 100)}%</span>
+                          <span className="text-xs font-bold text-red-600">Distress: {Math.round(turn.distress_score * 100)}%</span>
+                        </div>
+                      </div>
+
+                      {/* Multimodal Score Matrix per Turn */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-center text-xs">
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-bold uppercase">Text Analysis</div>
+                          <div className="font-extrabold text-slate-800 text-xs mt-0.5">
+                            {fm?.d_text !== undefined && fm?.d_text !== "UNAVAILABLE" ? `${Math.round(Number(fm.d_text) * 100)}%` : `${Math.round((turn.distress_score || 0) * 100)}%`}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-500 font-bold uppercase">Voice Analysis</div>
+                          <div className="font-extrabold text-slate-800 text-xs mt-0.5">
+                            {fm?.d_voice !== undefined && fm?.d_voice !== "UNAVAILABLE" ? `${Math.round(Number(fm.d_voice) * 100)}%` : isVoice ? "Active" : "Text-only"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-teal-700 font-bold uppercase">Fusion Score</div>
+                          <div className="font-extrabold text-teal-800 text-xs mt-0.5">
+                            {fm?.d_base !== undefined && fm?.d_base !== "UNAVAILABLE" ? `${Math.round(Number(fm.d_base) * 100)}%` : fm?.final_distress_score !== undefined && fm?.final_distress_score !== "UNAVAILABLE" ? `${Math.round(Number(fm.final_distress_score) * 100)}%` : `${Math.round((turn.distress_score || 0) * 100)}%`}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-red-600 font-bold uppercase">Risk Tier & Alert</div>
+                          <div className="font-extrabold text-red-600 text-xs mt-0.5">
+                            {tier} ({isAlert ? "ALERT" : "NONE"})
+                          </div>
                         </div>
                       </div>
 
@@ -837,15 +1114,15 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           <div className="font-bold text-lg text-slate-800">{selectedCaseDetails.summary?.total_check_ins} turns</div>
                         </div>
                         <div>
-                          <div className="text-xs text-[#64748b]">Last Interaction</div>
+                          <div className="text-xs text-[#64748b]">Last Interaction (IST)</div>
                           <div className="font-bold text-sm text-slate-800 mt-1">
-                            {selectedCaseDetails.summary?.last_interaction ? new Date(selectedCaseDetails.summary.last_interaction).toLocaleDateString() : "Never"}
+                            {selectedCaseDetails.summary?.last_interaction ? formatISTDateTime(selectedCaseDetails.summary.last_interaction) : "Never"}
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-[#64748b]">Enrollment Date</div>
+                          <div className="text-xs text-[#64748b]">Enrollment Date (IST)</div>
                           <div className="font-bold text-sm text-slate-800 mt-1">
-                            {new Date(selectedCaseDetails.case?.enrollment_date).toLocaleDateString()}
+                            {formatISTDate(selectedCaseDetails.case?.enrollment_date)}
                           </div>
                         </div>
                       </div>
@@ -869,7 +1146,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           {/* Yesterday's Turns */}
                           <div className="space-y-3">
                             <h4 className="font-semibold text-slate-700 text-sm flex items-center justify-between">
-                              <span>Yesterday's Conversations</span>
+                              <span>Yesterday's Conversations (IST)</span>
                               <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold">
                                 {dailyBreakdown.yesterdayTurns.length} turns
                               </span>
@@ -886,7 +1163,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           {/* Today's Turns */}
                           <div className="space-y-3">
                             <h4 className="font-semibold text-teal-700 text-sm flex items-center justify-between">
-                              <span>Today's Conversations</span>
+                              <span>Today's Conversations (IST)</span>
                               <span className="px-2 py-0.5 bg-teal-50 text-teal-700 rounded-full text-[10px] font-bold">
                                 {dailyBreakdown.todayTurns.length} turns
                               </span>
@@ -905,7 +1182,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
                     {/* Turn Analysis details (Entire History) */}
                     <div className="space-y-4 border-t border-slate-200 pt-6">
-                      <h3 className="font-bold text-slate-900 text-base">All Check-in History Logs</h3>
+                      <h3 className="font-bold text-slate-900 text-base">All Check-in History Logs (IST)</h3>
                       {selectedCaseDetails.history && selectedCaseDetails.history.length > 0 ? (
                         selectedCaseDetails.history.map((turn: any) => renderHistoryTurn(turn))
                       ) : (
@@ -928,7 +1205,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
           <div className="rounded-2xl p-6 border border-[#e2e8f0]" style={{ background: "#ffffff" }}>
             <div className="mb-4">
               <h2 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Distress Alert Logs</h2>
-              <p className="text-xs text-[#64748b] mt-0.5">Critical risk alerts generated by the distress scorer, including recommended legal relief provisions</p>
+              <p className="text-xs text-[#64748b] mt-0.5">Critical risk alerts generated by the distress scorer, including recommended legal relief provisions (Timestamps in IST)</p>
             </div>
 
             <div className="rounded-xl overflow-hidden border border-slate-200">
@@ -936,7 +1213,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-[#64748b]">
                     <th className="px-4 py-3 text-left">Patient Name</th>
-                    <th className="px-4 py-3 text-left">Generated At</th>
+                    <th className="px-4 py-3 text-left">Generated At (IST)</th>
                     <th className="px-4 py-3 text-left">Legal Provisions</th>
                     <th className="px-4 py-3 text-left">Intervention Action Text</th>
                     <th className="px-4 py-3 text-left">Status</th>
@@ -957,7 +1234,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                         <tr key={alert.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                           <td className="px-4 py-4 font-bold text-slate-900">{alert.user_name || "Rohan"}</td>
                           <td className="px-4 py-4 text-xs text-[#64748b]">
-                            {new Date(alert.created_at).toLocaleString()}
+                            {formatISTDateTime(alert.created_at)}
                           </td>
                           <td className="px-4 py-4">
                               {alert.cited_provisions && alert.cited_provisions.map((prov: any, index: number) => {
@@ -1044,7 +1321,360 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
           </div>
         )}
 
-        {/* 5. SETTINGS VIEW */}
+        {/* 5. BIOSIGNAL ANALYSIS VIEW (PROTOTYPE) */}
+        {activeNav === "Biosignal Analysis" && (
+          <div className="space-y-6">
+            {/* Header & Case Selector */}
+            <div className="rounded-2xl p-6 border border-[#e2e8f0] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h2 className="font-bold text-slate-900 text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Telemetry & Holistic Mental Status</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-700 border border-purple-200">
+                    Prototype / Demo Integration
+                  </span>
+                </div>
+                <p className="text-xs text-[#64748b] mt-0.5">Continuous physiological signal monitoring correlated with conversational distress modeling</p>
+              </div>
+
+              {/* Case / Patient Selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 font-semibold">Select Case:</span>
+                <select
+                  value={selectedCaseId || ""}
+                  onChange={(e) => setSelectedCaseId(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 outline-none focus:border-teal-500"
+                >
+                  {cases.map((c) => (
+                    <option key={c.case_id} value={c.case_id}>
+                      {c.user?.name} ({c.nhaa_ref}) — {c.risk_tier} RISK
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => selectedCaseId && syncBiosignals(selectedCaseId)}
+                  disabled={bioSyncLoading || !selectedCaseId}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={bioSyncLoading ? "animate-spin" : ""}>
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l6.23-1.19"/>
+                  </svg>
+                  {bioSyncLoading ? "Syncing..." : "Simulate Sync"}
+                </button>
+              </div>
+            </div>
+
+            {/* Overview Card */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Patient</div>
+                  <div className="font-bold text-slate-900 text-sm mt-0.5">{bioData?.patient_name || selectedCase?.user?.name || "Rohan"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Case Reference</div>
+                  <div className="font-bold text-slate-900 text-sm mt-0.5">{bioData?.case_name || selectedCase?.nhaa_ref || "ROHAN-CASE-2"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Device Model</div>
+                  <div className="font-bold text-slate-900 text-sm mt-0.5">{bioData?.device_name || "Sahaaya Biosignal Prototype"}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Connection Status</div>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="font-bold text-green-700 text-xs">{bioData?.device_status || "Connected"} (Demo Data)</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Last Sync (IST)</div>
+                  <div className="font-bold text-slate-700 text-xs mt-0.5">{bioData?.last_sync_ist || formatISTDateTime(new Date())}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Active Alert Integration Banner */}
+            {selectedCaseDetails?.summary?.risk_tier && ["SEVERE", "HIGH", "CRITICAL"].includes(selectedCaseDetails.summary.risk_tier) && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3 text-xs">
+                <div className="w-8 h-8 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0 text-red-600 font-bold mt-0.5">
+                  ⚠️
+                </div>
+                <div className="space-y-1">
+                  <div className="font-bold text-red-900 text-sm flex items-center gap-2">
+                    <span>Active Alert Context: {selectedCaseDetails.summary.risk_tier} RISK CASE</span>
+                    <span className="px-2 py-0.5 bg-red-200 text-red-800 rounded-full text-[10px] font-extrabold">STATUS: ACTIVE</span>
+                  </div>
+                  <p className="text-red-800 leading-relaxed">
+                    <strong>Biosignal Context:</strong> Sleep duration reduced ({bioData?.sleep?.duration_formatted || "6h 42m"}), elevated skin conductance ({bioData?.skin_conductance?.average_us || 2.8} µS) with {bioData?.skin_conductance?.stress_events || 4} physiological response markers. Contextual physiological observations reinforce monitored conversational distress signals.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* SECTION: OVERALL MENTAL STATUS (HOLISTIC ASSESSMENT) */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Overall Mental Status (Holistic Assessment)</h3>
+                  <p className="text-xs text-[#64748b]">Decision-support layer combining conversational AI indicators with prototype physiological telemetry</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-3 py-1 rounded-full text-xs font-extrabold border ${
+                    holisticData?.status_color === "red" ? "bg-red-100 text-red-700 border-red-200" :
+                    holisticData?.status_color === "orange" ? "bg-orange-100 text-orange-700 border-orange-200" :
+                    holisticData?.status_color === "amber" ? "bg-amber-100 text-amber-700 border-amber-200" :
+                    "bg-green-100 text-green-700 border-green-200"
+                  }`}>
+                    {holisticData?.current_status || "Moderate Concern"}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                    Trend: {holisticData?.trend || "Improving"}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                    Confidence: Demo / Prototype
+                  </span>
+                </div>
+              </div>
+
+              {/* Multimodal Signal Matrix */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Text Analysis</div>
+                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.text_score || "40%"}</div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">Linguistic</div>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Voice Analysis</div>
+                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.voice_score || "59%"}</div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">Acoustic</div>
+                </div>
+                <div className="p-3 bg-teal-50/50 border border-teal-100 rounded-xl">
+                  <div className="text-[10px] text-teal-700 font-bold uppercase">Fusion Score</div>
+                  <div className="font-extrabold text-teal-800 text-sm mt-1">{holisticData?.signals?.fusion_score || "52%"}</div>
+                  <div className="text-[9px] text-teal-600 mt-0.5">Distress Tier: {holisticData?.signals?.risk_tier || "MODERATE"}</div>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep</div>
+                  <div className="font-extrabold text-purple-700 text-sm mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Heart Rate</div>
+                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.heart_rate_status || "Normal"}</div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.heart_rate?.resting_bpm || 74} BPM</div>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Skin Conductance</div>
+                  <div className="font-extrabold text-orange-600 text-sm mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Blood Oxygen</div>
+                  <div className="font-extrabold text-teal-700 text-sm mt-1">{holisticData?.signals?.spo2_status || "Normal"}</div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.blood_oxygen?.average_spo2 || 98}% SpO2</div>
+                </div>
+              </div>
+
+              {/* Dynamic Overall Interpretation */}
+              <div className="p-4 bg-teal-50/30 border border-teal-100 rounded-xl space-y-2">
+                <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                  <span>💡 Holistic Clinical-Support Interpretation</span>
+                  <span className="text-[10px] font-normal text-teal-700">(Generated from synthesized multimodal + biosignal channels)</span>
+                </div>
+                <p className="text-xs text-slate-800 leading-relaxed italic">
+                  "{holisticData?.overall_interpretation || "Current multimodal analysis indicates moderate distress. Sleep quality is observed as below baseline while resting heart rate remains within the normal demo range. Proactive counsellor check-in and safety monitoring are recommended."}"
+                </p>
+              </div>
+
+              {/* Biosignal Contributing Indicators */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="text-xs font-bold text-slate-700 uppercase tracking-wide">Biosignal Contributing Indicators</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {holisticData?.contributing_indicators?.map((ind: string, i: number) => (
+                    <div key={i} className="flex items-start gap-2 text-xs text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <span className="text-teal-600 font-bold">•</span>
+                      <span>{ind}</span>
+                    </div>
+                  )) || (
+                    <div className="text-xs text-slate-400 italic">No specific anomaly markers logged.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION: SLEEP ANALYTICS & SLEEP HISTORY */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Sleep Analytics & Circadian Pattern</h3>
+                  <p className="text-xs text-[#64748b]">Sleep quality index, sleep architecture consistency, and nightly recovery scores (Simulated Data)</p>
+                </div>
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                  SIMULATED / DEMO DATA
+                </span>
+              </div>
+
+              {/* 5 Sleep KPI Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Duration</div>
+                  <div className="text-xl font-black text-slate-800">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                  <div className="text-[10px] text-slate-400">{bioData?.sleep?.duration_minutes || 402} minutes</div>
+                </div>
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Quality</div>
+                  <div className="text-xl font-black text-purple-700">{bioData?.sleep?.quality || "Moderate"}</div>
+                  <div className="text-[10px] text-slate-400">Score: {bioData?.sleep?.status || "Below Baseline"}</div>
+                </div>
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Consistency</div>
+                  <div className="text-xl font-black text-slate-800">{bioData?.sleep?.consistency || 72}%</div>
+                  <div className="text-[10px] text-slate-400">Regularity index</div>
+                </div>
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Disturbances</div>
+                  <div className="text-xl font-black text-orange-600">{bioData?.sleep?.disturbances || 3}</div>
+                  <div className="text-[10px] text-slate-400">Awakening markers</div>
+                </div>
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Recovery</div>
+                  <div className="text-xl font-black text-teal-700">{bioData?.sleep?.recovery || "Moderate"}</div>
+                  <div className="text-[10px] text-slate-400">Restorative index</div>
+                </div>
+              </div>
+
+              {/* Sleep History Table */}
+              <div className="space-y-2">
+                <h4 className="font-bold text-slate-800 text-sm">Sleep History Log (Last 4 Days)</h4>
+                <div className="rounded-xl overflow-hidden border border-slate-200">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                        <th className="px-4 py-2.5 text-left">Date</th>
+                        <th className="px-4 py-2.5 text-left">Sleep Duration</th>
+                        <th className="px-4 py-2.5 text-left">Quality Rating</th>
+                        <th className="px-4 py-2.5 text-left">Recovery Index</th>
+                        <th className="px-4 py-2.5 text-left">Awakening Disturbances</th>
+                        <th className="px-4 py-2.5 text-left">Sleep Efficiency</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bioData?.sleep_history && bioData.sleep_history.length > 0 ? (
+                        bioData.sleep_history.map((row: any, idx: number) => (
+                          <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50">
+                            <td className="px-4 py-3 font-bold text-slate-800">{row.date}</td>
+                            <td className="px-4 py-3 text-slate-700 font-semibold">{row.duration}</td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                row.quality === "Good" ? "bg-green-50 text-green-700 border border-green-200" :
+                                row.quality === "Moderate" ? "bg-purple-50 text-purple-700 border border-purple-200" :
+                                "bg-red-50 text-red-700 border border-red-200"
+                              }`}>
+                                {row.quality}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">{row.recovery}</td>
+                            <td className="px-4 py-3 text-slate-700">{row.disturbances} wake events</td>
+                            <td className="px-4 py-3 font-semibold text-slate-800">{row.efficiency || "82%"}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-6 text-center text-slate-400">No sleep history logged for this case.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION: HEART RATE, SKIN CONDUCTANCE, SPO2 GRID */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Heart Rate Analysis */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h4 className="font-bold text-slate-900 text-sm">Heart Rate (PPG)</h4>
+                  <span className="text-[10px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                    {bioData?.heart_rate?.status || "Normal"}
+                  </span>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Resting Heart Rate</span>
+                    <span className="font-bold text-slate-900">{bioData?.heart_rate?.resting_bpm || 74} BPM</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Average Heart Rate</span>
+                    <span className="font-bold text-slate-900">{bioData?.heart_rate?.average_bpm || 78} BPM</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Daily Range (Min–Max)</span>
+                    <span className="font-bold text-slate-900">{bioData?.heart_rate?.range_formatted || "62–101 BPM"}</span>
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-400 pt-1">
+                  * Simulated photoplethysmography sensor stream
+                </div>
+              </div>
+
+              {/* Skin Conductance */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h4 className="font-bold text-slate-900 text-sm">Skin Conductance (GSR)</h4>
+                  <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                    {bioData?.skin_conductance?.status || "Elevated"}
+                  </span>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Average Conductance</span>
+                    <span className="font-bold text-slate-900">{bioData?.skin_conductance?.average_us || 2.8} µS</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Peak Conductance</span>
+                    <span className="font-bold text-slate-900">{bioData?.skin_conductance?.peak_us || 5.1} µS</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Stress Response Markers</span>
+                    <span className="font-bold text-orange-600">{bioData?.skin_conductance?.stress_events || 4} events</span>
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-400 pt-1">
+                  * Prototype electrodermal activity telemetry
+                </div>
+              </div>
+
+              {/* Blood Oxygen & Respiratory Rate */}
+              <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h4 className="font-bold text-slate-900 text-sm">SpO2 & Respiration</h4>
+                  <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    {bioData?.blood_oxygen?.status || "Normal"}
+                  </span>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Average SpO2 Saturation</span>
+                    <span className="font-bold text-slate-900">{bioData?.blood_oxygen?.average_spo2 || 98}%</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Minimum SpO2 Recorded</span>
+                    <span className="font-bold text-slate-900">{bioData?.blood_oxygen?.min_spo2 || 96}%</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-50">
+                    <span className="text-slate-600">Average Respiratory Rate</span>
+                    <span className="font-bold text-slate-900">{bioData?.respiratory_rate?.average_bpm || 15} breaths/min</span>
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-400 pt-1">
+                  * Simulated pulse oximetry & respiratory rhythm
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 6. SETTINGS VIEW */}
         {activeNav === "Settings" && (
           <div className="rounded-2xl p-6 border border-[#e2e8f0] bg-white space-y-6">
             <div>
@@ -1072,7 +1702,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 />
               </div>
               <div className="p-4 bg-[#f0fdfa] border border-[#99f6e4] rounded-xl text-teal-800 text-xs">
-                💡 Nirbhaya Mitra uses a double-modality distress score. It weights the acoustic and linguistic variables separately and links alerts to legal relief provisions.
+                💡 Mann Sathi uses a double-modality distress score. It weights the acoustic and linguistic variables separately and links alerts to legal relief provisions.
               </div>
             </div>
           </div>
