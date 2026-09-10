@@ -17,6 +17,8 @@ from backend.app.utils.timezone_utils import (
     get_ist_date_key
 )
 
+from backend.app.services.distress_scorer import apply_distress_reduction_cap, get_tier_for_score
+
 logger = logging.getLogger(__name__)
 
 def get_case_baseline(case_id: str) -> dict:
@@ -52,11 +54,37 @@ class ConversationSession:
         self.created_at = time.time()
         self.updated_at = time.time()
 
+    def get_latest_distress_score(self) -> Optional[float]:
+        """
+        Retrieves the most recent distress score for this case/session (0-100 scale).
+        First checks in-memory session history, then queries Supabase.
+        """
+        if self.history:
+            last_ds = self.history[-1].get("distress_score")
+            if last_ds is not None and not isinstance(last_ds, str):
+                num_val = float(last_ds)
+                return num_val * 100.0 if num_val <= 1.0 else num_val
+                
+        try:
+            prev_res = supabase.table("distress_scores") \
+                .select("total_score") \
+                .eq("case_id", self.case_id) \
+                .order("timestamp", desc=True) \
+                .limit(1) \
+                .execute()
+            if prev_res.data and prev_res.data[0].get("total_score") is not None:
+                return float(prev_res.data[0]["total_score"])
+        except Exception as e:
+            logger.warning(f"Failed to fetch previous distress score for case {self.case_id}: {e}")
+            
+        return None
+
     def add_turn(self, transcript: str, response_text: str, conversation_state: str,
                  distress_score: Any, safety_attention: bool, internal_analysis: Optional[Dict[str, Any]] = None,
                  recommendation_text: Optional[str] = None, cited_provisions: Optional[Any] = None):
         """
         Appends a conversational turn to the session history in Supabase and local cache.
+        Enforces rate-limiting smoothing so decreasing distress is capped to max 7-8% reduction per update.
         """
         self.turn_number += 1
         self.updated_at = time.time()
@@ -93,6 +121,25 @@ class ConversationSession:
                 if sorted_ems:
                     primary_emotion = sorted_ems[0][0]
 
+        # 3. Calculate distress score with rate-limiting cap on decreases (max 8% drop per update)
+        raw_score_val = 0.0
+        if distress_score is not None and not isinstance(distress_score, str):
+            raw_score_val = float(distress_score)
+        
+        raw_score_db = round(raw_score_val * 100.0, 2) if raw_score_val <= 1.0 else round(raw_score_val, 2)
+        previous_score = self.get_latest_distress_score()
+        total_score_db = apply_distress_reduction_cap(previous_score, raw_score_db, max_reduction_ratio=0.08)
+        score_val = round(total_score_db / 100.0, 4)
+        fusion_tier = get_tier_for_score(total_score_db)
+
+        # Update internal_analysis so all downstream storage and indicators reflect the capped score
+        if internal_analysis and isinstance(internal_analysis, dict):
+            if "fusion_metrics" in internal_analysis and isinstance(internal_analysis["fusion_metrics"], dict):
+                internal_analysis["fusion_metrics"]["final_distress_score"] = score_val
+                internal_analysis["fusion_metrics"]["tier"] = fusion_tier
+                internal_analysis["fusion_metrics"]["raw_model_distress_score"] = round(raw_score_db / 100.0, 4)
+            internal_analysis["raw_model_distress_score"] = raw_score_db
+
         # Mappings for distress_indicators JSONB
         distress_indicators = {
             "session_id": self.session_id,
@@ -101,7 +148,8 @@ class ConversationSession:
             "ai_response": response_text,
             "follow_up_question": internal_analysis.get("follow_up_question", "") if internal_analysis else "",
             "safety_attention": safety_attention,
-            "conversation_state": conversation_state
+            "conversation_state": conversation_state,
+            "fusion_metrics": internal_analysis.get("fusion_metrics") if internal_analysis else None
         }
 
         # Mappings for voice_features JSONB
@@ -112,7 +160,7 @@ class ConversationSession:
                 "conversational_features": conversational_features
             }
 
-        # 3. Write to check_ins table in Supabase
+        # 4. Write to check_ins table in Supabase
         checkin_id = str(uuid.uuid4())
         try:
             supabase.table("check_ins").insert({
@@ -130,13 +178,7 @@ class ConversationSession:
         except Exception as e:
             logger.error(f"Failed to insert turn into check_ins table: {e}", exc_info=True)
 
-        # 4. Calculate baseline deviation and trend
-        score_val = 0.0
-        if distress_score is not None and not isinstance(distress_score, str):
-            score_val = float(distress_score)
-        
-        total_score_db = round(score_val * 100, 2)
-        
+        # 5. Calculate baseline deviation and trend
         baseline = get_case_baseline(self.case_id)
         deviation = total_score_db - baseline["avg_score"]
         
@@ -155,7 +197,7 @@ class ConversationSession:
             "baseline_deviation": round(deviation, 2)
         }
 
-        # 5. Write to distress_scores table in Supabase
+        # 6. Write to distress_scores table in Supabase
         score_id = str(uuid.uuid4())
         try:
             supabase.table("distress_scores").insert({
@@ -170,19 +212,7 @@ class ConversationSession:
         except Exception as e:
             logger.error(f"Failed to insert into distress_scores table: {e}", exc_info=True)
 
-        # 6. Evaluate multimodal fusion result + crisis safety override for alert creation
-        fusion_metrics = (internal_analysis or {}).get("fusion_metrics") or {}
-        fusion_tier = fusion_metrics.get("tier", "")
-        if not fusion_tier:
-            if total_score_db >= 75.0:
-                fusion_tier = "SEVERE"
-            elif total_score_db >= 50.0:
-                fusion_tier = "HIGH"
-            elif total_score_db >= 25.0:
-                fusion_tier = "MODERATE"
-            else:
-                fusion_tier = "LOW"
-
+        # 7. Evaluate multimodal fusion result + crisis safety override for alert creation
         should_trigger_alert = (
             safety_attention or
             fusion_tier in ("SEVERE", "CRITICAL", "HIGH") or
@@ -209,7 +239,7 @@ class ConversationSession:
             except Exception as e:
                 logger.error(f"Failed to insert emergency alert record: {e}", exc_info=True)
 
-        # 7. Update local cache (essential for test frameworks and immediate context retrieval)
+        # 8. Update local cache (essential for test frameworks and immediate context retrieval)
         turn_data = {
             "turn_number": self.turn_number,
             "transcript": transcript,

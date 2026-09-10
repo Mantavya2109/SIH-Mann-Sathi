@@ -6,6 +6,7 @@ from supabase import create_client
 from backend.app.services.text_analysis import analyze_text_signal
 from backend.app.services.recommendation import generate_recommendation
 from backend.app.services.explainability import format_explanation
+from backend.app.services.distress_scorer import apply_distress_reduction_cap, get_tier_for_score
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
@@ -28,6 +29,22 @@ def get_case_baseline(case_id: str) -> dict:
     scores = [row["total_score"] for row in response.data if row["total_score"] is not None]
     avg = sum(scores) / len(scores) if scores else 0.0
     return {"avg_score": avg}  # already 0-100 scale — no change needed here
+
+
+def get_latest_distress_score(case_id: str):
+    """Fetch the most recent distress score for this case from Supabase (0-100 scale)."""
+    try:
+        response = supabase.table("distress_scores") \
+            .select("total_score") \
+            .eq("case_id", case_id) \
+            .order("timestamp", desc=True) \
+            .limit(1) \
+            .execute()
+        if response.data and response.data[0].get("total_score") is not None:
+            return float(response.data[0]["total_score"])
+    except Exception as e:
+        print(f"Error fetching latest score for case {case_id}: {e}")
+    return None
 
 
 def analyze_voice_checkin(audio_file_path: str) -> dict:
@@ -53,7 +70,9 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
         raw_score = abs(checkin_result.get("sentiment_score", 0.0))
         safety_flag = False
 
-    total_score = round(raw_score * 100, 2)
+    raw_total_score = round(raw_score * 100, 2)
+    previous_score = get_latest_distress_score(case_id)
+    total_score = apply_distress_reduction_cap(previous_score, raw_total_score, max_reduction_ratio=0.08)
 
     baseline = get_case_baseline(case_id)
     deviation = total_score - baseline["avg_score"]
