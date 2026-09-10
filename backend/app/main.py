@@ -1144,6 +1144,115 @@ def get_case_details(case_id: str):
         logger.error(f"Failed to get case details: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/counsellor/cases/{case_id}/location")
+def get_case_location(case_id: str):
+    """
+    Returns simulated hardware location for a case ONLY if distress_score > 60.
+    Accessible to Counsellors only.
+    """
+    try:
+        case_res = supabase.table("cases").select("*").eq("id", case_id).execute()
+        if not case_res.data:
+            raise HTTPException(status_code=404, detail="Case not found")
+        case = case_res.data[0]
+        nhaa_ref = case.get("nhaa_ref", "") or ""
+        
+        # Determine latest distress score
+        score_res = supabase.table("distress_scores") \
+            .select("total_score, timestamp") \
+            .eq("case_id", case_id) \
+            .order("timestamp", desc=True) \
+            .limit(1) \
+            .execute()
+        
+        latest_score = 0.0
+        last_ts = ""
+        if score_res.data:
+            latest_score = float(score_res.data[0].get("total_score") or 0.0)
+            last_ts = score_res.data[0].get("timestamp") or ""
+            
+        is_critical = latest_score > 60.0
+        
+        # Determine patient identity
+        is_rohan = "ROHAN" in nhaa_ref.upper()
+        is_ananya = "ANANYA" in nhaa_ref.upper()
+        
+        case_label = "Rohan / Case 1" if "CASE-1" in nhaa_ref.upper() and is_rohan else \
+                     "Rohan / Case 2" if "CASE-2" in nhaa_ref.upper() and is_rohan else \
+                     "Rohan" if is_rohan else \
+                     "Ananya Patel / Case 1" if is_ananya else "Patient / Case"
+
+        patient_name = "Rohan" if is_rohan else "Ananya Patel" if is_ananya else "Unknown Patient"
+
+        if not is_critical:
+            return {
+                "case_id": case_id,
+                "nhaa_ref": nhaa_ref,
+                "patient_name": patient_name,
+                "case_label": case_label,
+                "distress_score": latest_score,
+                "is_critical": False,
+                "location_available": False,
+                "message": "Location unavailable - case is not currently critical (Distress score <= 60)."
+            }
+
+        # Location coordinates
+        if is_rohan:
+            location_data = {
+                "place_name": "VIT-AP University, Amaravati, Andhra Pradesh",
+                "city": "Amaravati",
+                "state": "Andhra Pradesh",
+                "latitude": 16.4971,
+                "longitude": 80.4992,
+                "formatted_address": "VIT-AP University Campus, Beside AP Secretariat, Inavolu, Amaravati, Andhra Pradesh 522237, India",
+                "landmark": "Academic Block / Central Academic Courtyard",
+                "accuracy_meters": 4.2,
+                "altitude_meters": 24.5,
+                "speed_kmh": 0.0,
+                "battery_pct": 82,
+                "signal_strength_dbm": -68,
+                "hardware_device_id": "MANN-IOT-GPS-082",
+                "telemetry_source": "Simulated Hardware IoT Beacon",
+                "last_gps_fix": last_ts or format_utc_iso(utc_now()),
+                "is_simulated": True
+            }
+        else:
+            # Ananya (Visakhapatnam)
+            location_data = {
+                "place_name": "Visakhapatnam, Andhra Pradesh",
+                "city": "Visakhapatnam",
+                "state": "Andhra Pradesh",
+                "latitude": 17.6868,
+                "longitude": 83.2185,
+                "formatted_address": "Siripuram / Beach Road Zone, Visakhapatnam, Andhra Pradesh 530003, India",
+                "landmark": "Siripuram Junction / RK Beach Corridor",
+                "accuracy_meters": 3.8,
+                "altitude_meters": 12.0,
+                "speed_kmh": 0.0,
+                "battery_pct": 76,
+                "signal_strength_dbm": -64,
+                "hardware_device_id": "MANN-IOT-GPS-104",
+                "telemetry_source": "Simulated Hardware IoT Beacon",
+                "last_gps_fix": last_ts or format_utc_iso(utc_now()),
+                "is_simulated": True
+            }
+
+        return {
+            "case_id": case_id,
+            "nhaa_ref": nhaa_ref,
+            "patient_name": patient_name,
+            "case_label": case_label,
+            "distress_score": latest_score,
+            "is_critical": True,
+            "location_available": True,
+            "location": location_data
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Failed to fetch location for case {case_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/counsellor/cases/{case_id}/history")
 def get_case_history(case_id: str):
     """
@@ -1453,4 +1562,169 @@ def get_user_biosignals(user_id: str):
     except Exception as e:
         logger.error(f"Failed to get user biosignals for {user_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==============================================================================
+# USER / VICTIM PORTAL ENDPOINTS
+# ==============================================================================
+
+from fastapi.responses import FileResponse
+from backend.app.services.user_portal_service import user_portal_service
+
+class RescheduleRequest(BaseModel):
+    new_date: str
+    new_time: str
+
+@app.get("/api/user/{user_id}/home-snapshot")
+def get_user_home_snapshot(user_id: str):
+    """
+    Returns home dashboard snapshot for the authenticated user, including canonical
+    distress status, today's check-in status, next appointment, and personalized greeting.
+    """
+    try:
+        return user_portal_service.get_home_snapshot(user_id)
+    except Exception as e:
+        logger.error(f"Failed to get home snapshot for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/counsellors")
+def get_counsellor_profiles():
+    """
+    Returns verified Indian mental health counselling professionals.
+    """
+    try:
+        return user_portal_service.get_counsellors()
+    except Exception as e:
+        logger.error(f"Failed to get counsellors: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/{user_id}/appointments")
+def get_user_appointments(user_id: str):
+    """
+    Returns upcoming and past appointments for the authenticated user.
+    """
+    try:
+        return user_portal_service.get_user_appointments(user_id)
+    except Exception as e:
+        logger.error(f"Failed to get appointments for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/user/{user_id}/appointments/{appointment_id}/reschedule")
+def reschedule_user_appointment(user_id: str, appointment_id: str, payload: RescheduleRequest):
+    """
+    Reschedules an upcoming appointment.
+    """
+    try:
+        updated = user_portal_service.reschedule_appointment(
+            user_id=user_id,
+            appointment_id=appointment_id,
+            new_date=payload.new_date,
+            new_time=payload.new_time
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Appointment not found or not eligible for reschedule.")
+        return updated
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Failed to reschedule appointment {appointment_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/{user_id}/case-updates")
+def get_user_case_updates(user_id: str):
+    """
+    Returns supportive, neutral case timeline updates and notes from the care team.
+    """
+    try:
+        return user_portal_service.get_case_updates(user_id)
+    except Exception as e:
+        logger.error(f"Failed to get case updates for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/{user_id}/documents")
+def get_user_documents(user_id: str):
+    """
+    Returns user uploaded case documents and reports.
+    """
+    try:
+        return user_portal_service.get_user_documents(user_id)
+    except Exception as e:
+        logger.error(f"Failed to get documents for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/user/{user_id}/documents/upload")
+async def upload_user_document(user_id: str, file: UploadFile = File(...)):
+    """
+    Uploads a case-related document (.pdf, .doc, .docx) with size and type validation.
+    """
+    try:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Filename missing.")
+            
+        allowed_extensions = {".pdf", ".doc", ".docx"}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file format '{ext}'. Only PDF, DOC, and DOCX files are permitted."
+            )
+            
+        content = await file.read()
+        max_bytes = 15 * 1024 * 1024  # 15MB limit
+        if len(content) > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail="File exceeds the maximum allowable size of 15 MB."
+            )
+            
+        record = user_portal_service.save_uploaded_document(
+            user_id=user_id,
+            filename=file.filename,
+            file_bytes=content
+        )
+        return record
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Failed to upload document for {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/{user_id}/documents/{doc_id}/download")
+def download_user_document(user_id: str, doc_id: str):
+    """
+    Streams the requested document file back to the client.
+    """
+    try:
+        file_path, original_filename = user_portal_service.get_document_file_path(user_id, doc_id)
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Document file not found on server.")
+            
+        ext = os.path.splitext(original_filename)[1].lower()
+        media_type = "application/pdf"
+        if ext == ".docx":
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif ext == ".doc":
+            media_type = "application/msword"
+            
+        return FileResponse(
+            path=file_path,
+            filename=original_filename,
+            media_type=media_type
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Failed to download document {doc_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/resources")
+def get_user_resources():
+    """
+    Returns structured mental health education and self-help guidance.
+    """
+    try:
+        return user_portal_service.get_resources()
+    except Exception as e:
+        logger.error(f"Failed to get user resources: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 

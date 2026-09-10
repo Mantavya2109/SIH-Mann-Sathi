@@ -2,6 +2,52 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def apply_distress_reduction_cap(previous_score: float | None, calculated_score: float, max_reduction_ratio: float = 0.08) -> float:
+    """
+    Enforces rate-limiting smoothing on decreasing distress scores.
+    When distress is decreasing (calculated_score < previous_score),
+    caps the reduction to at most `max_reduction_ratio` (default 8% / 0.08) of the previous score per update.
+    When distress is increasing or equal, leaves the score completely unchanged.
+    Handles both 0.0-1.0 and 0.0-100.0 scales seamlessly.
+    """
+    if previous_score is None:
+        return calculated_score
+    
+    # Detect scale (0-1.0 vs 0-100.0)
+    is_unit_scale = (float(calculated_score) <= 1.0 and float(previous_score) <= 1.0 and float(previous_score) > 0.0 and float(calculated_score) >= 0.0)
+    
+    prev_100 = float(previous_score) * 100.0 if is_unit_scale else float(previous_score)
+    calc_100 = float(calculated_score) * 100.0 if is_unit_scale else float(calculated_score)
+    
+    if calc_100 < prev_100:
+        max_allowed_drop = prev_100 * max_reduction_ratio
+        min_allowed_score = prev_100 - max_allowed_drop
+        final_100 = max(calc_100, min_allowed_score)
+    else:
+        final_100 = calc_100
+        
+    final_100 = max(0.0, min(100.0, final_100))
+    
+    if is_unit_scale:
+        return round(final_100 / 100.0, 4)
+    return round(final_100, 2)
+
+
+def get_tier_for_score(score: float) -> str:
+    """
+    Maps a distress score (0.0-1.0 or 0-100) to its clinical risk tier.
+    """
+    s = score / 100.0 if score > 1.0 else score
+    if s <= 0.25:
+        return "LOW"
+    elif s <= 0.50:
+        return "MODERATE"
+    elif s <= 0.75:
+        return "HIGH"
+    else:
+        return "SEVERE"
+
+
 class DistressScorerService:
     """
     Production-ready Multimodal Distress Scorer.
@@ -20,6 +66,12 @@ class DistressScorerService:
             "pause_weight": 0.30,
             "ratio_weight": 0.20
         }
+
+    def apply_reduction_cap(self, previous_score: float | None, calculated_score: float, max_reduction_ratio: float = 0.08) -> float:
+        return apply_distress_reduction_cap(previous_score, calculated_score, max_reduction_ratio)
+
+    def get_tier(self, score: float) -> str:
+        return get_tier_for_score(score)
 
     def calculate_score(self, voice_emotions: dict | None, text_emotions: dict | str | None,
                         text_features: dict, acoustic_features: dict | None,
