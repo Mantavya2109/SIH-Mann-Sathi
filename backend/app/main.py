@@ -1564,6 +1564,39 @@ def get_user_biosignals(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==============================================================================
+# REAL WEARABLE BRIDGE ENDPOINTS (ThingSpeak-backed hardware, wearable_bridge.py)
+# ==============================================================================
+
+from backend.app.services.wearable_bridge import analyze_wearable_status, sync_wearable_reading
+
+@app.get("/api/wearable/analysis/{case_id}")
+def get_wearable_analysis(case_id: str):
+    """
+    Counsellor-facing wearable status: whether the device is actively
+    reporting, has gone quiet ("not responding"), or has never sent data
+    for this case, plus a short numeric trend summary when active.
+
+    Pulls the freshest reading from ThingSpeak first (same as the old
+    "Simulate Sync" flow) so polling this endpoint repeatedly picks up
+    each new sensor reading (e.g. a finger placed back on the sensor)
+    without needing a separate manual sync step.
+    """
+    try:
+        sync_result = sync_wearable_reading(case_id, supabase)
+        if not sync_result.get("success"):
+            logger.info(f"Wearable sync skipped for case {case_id}: {sync_result.get('reason')}")
+    except Exception as e:
+        # Don't fail the whole request if ThingSpeak is briefly unreachable --
+        # fall back to whatever's already in check_ins.
+        logger.warning(f"Wearable sync failed for case {case_id}: {e}")
+
+    try:
+        return analyze_wearable_status(case_id, supabase)
+    except Exception as e:
+        logger.error(f"Failed to analyze wearable status for case {case_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==============================================================================
 # USER / VICTIM PORTAL ENDPOINTS
 # ==============================================================================
 

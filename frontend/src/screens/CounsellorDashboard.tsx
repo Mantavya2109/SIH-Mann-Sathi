@@ -62,6 +62,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const [holisticData, setHolisticData] = useState<any>(null);
   const [bioSyncLoading, setBioSyncLoading] = useState(false);
 
+  // Wearable Monitoring State (real ThingSpeak-backed device, wearable_bridge.py)
+  const [wearableData, setWearableData] = useState<any>(null);
+  const [wearableLoading, setWearableLoading] = useState(false);
+
   // Location Telemetry State
   const [locationData, setLocationData] = useState<any>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -150,6 +154,44 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
       fetchBiosignals(selectedCaseId);
     }
   }, [selectedCaseId, caseDetailsRefreshKey]);
+
+  // Fetch Wearable Monitoring analysis for the currently-viewed case
+  async function fetchWearableAnalysis(caseId: string) {
+    try {
+      setWearableLoading(true);
+      const res = await fetch(getApiUrl(`/api/wearable/analysis/${caseId}`));
+      if (res.ok) {
+        const d = await res.json();
+        setWearableData(d);
+      } else {
+        setWearableData(null);
+      }
+    } catch (err) {
+      console.error("Failed to load wearable analysis for case:", caseId, err);
+      setWearableData(null);
+    } finally {
+      setWearableLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (selectedCaseId) {
+      fetchWearableAnalysis(selectedCaseId);
+    } else {
+      setWearableData(null);
+    }
+  }, [selectedCaseId, caseDetailsRefreshKey]);
+
+  // Auto-poll wearable analysis while the Biosignal Analysis tab is open, so the
+  // Heart Rate / SpO2 tiles pick up each new ThingSpeak reading (e.g. a finger
+  // placed back on the sensor) on their own, without a manual "Simulate Sync" click.
+  useEffect(() => {
+    if (!selectedCaseId || activeNav !== "Biosignal Analysis") return;
+    const pollInterval = setInterval(() => {
+      fetchWearableAnalysis(selectedCaseId);
+    }, 15000); // matches the ESP32's ~15s ThingSpeak upload cadence
+    return () => clearInterval(pollInterval);
+  }, [selectedCaseId, activeNav]);
 
   useEffect(() => {
     // Clear details immediately during case transition to avoid stale state mixing
@@ -328,6 +370,30 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     : [];
 
   const selectedCase = cases.find(c => c.case_id === selectedCaseId);
+
+  // The physical wearable device only exists for one seeded case (Rohan / Case 2).
+  // Every other case has no hardware behind it, so the Biosignal Analysis tiles
+  // must not show fabricated numbers for them.
+  const isRohanCase2 = !!(
+    selectedCase?.nhaa_ref &&
+    selectedCase.nhaa_ref.toUpperCase().includes("ROHAN") &&
+    selectedCase.nhaa_ref.toUpperCase().includes("CASE-2")
+  );
+
+  // Live wearable readings for the Biosignal Analysis tiles (Heart Rate / Blood Oxygen only —
+  // Sleep and Skin Conductance have no real sensor and stay demo/prototype, and only for
+  // Rohan Case 2 — the only case with hardware attached).
+  const liveHeartRate = isRohanCase2 && wearableData?.status === "active" && wearableData?.current_reading?.heart_rate != null
+    ? wearableData.current_reading.heart_rate
+    : null;
+  const liveSpo2 = isRohanCase2 && wearableData?.status === "active" && wearableData?.current_reading?.spo2 != null
+    ? wearableData.current_reading.spo2
+    : null;
+  const heartRateStatusLabel = liveHeartRate == null ? null :
+    liveHeartRate < 60 ? "Low" : liveHeartRate <= 100 ? "Normal" : "Elevated";
+  const spo2StatusLabel = liveSpo2 == null ? null :
+    liveSpo2 >= 95 ? "Normal" : liveSpo2 >= 90 ? "Low" : "Critical";
+
   const latestInteraction = selectedCaseDetails?.latest_interaction;
   const history = selectedCaseDetails?.history || [];
   const latestTurn = latestInteraction || (history.length > 0 ? history[history.length - 1] : null);
@@ -1135,6 +1201,71 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       </div>
                     </div>
 
+                    {/* Wearable Monitoring Card */}
+                    <div className="rounded-2xl p-6 border border-slate-200 bg-white space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-bold text-slate-900 text-sm" style={{ fontFamily: "Manrope, sans-serif" }}>Wearable Monitoring</h3>
+                          <p className="text-xs text-[#64748b]">Live status from the connected wearable device</p>
+                        </div>
+                        {wearableData?.status && (
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${
+                            wearableData.status === "active" ? "bg-green-100 text-green-700 border-green-200" :
+                            wearableData.status === "not_responding" ? "bg-amber-100 text-amber-700 border-amber-300" :
+                            "bg-slate-100 text-slate-500 border-slate-200"
+                          }`}>
+                            {wearableData.status === "active" ? "ACTIVE" : wearableData.status === "not_responding" ? "NOT RESPONDING" : "NO DATA"}
+                          </span>
+                        )}
+                      </div>
+
+                      {wearableLoading && !wearableData ? (
+                        <div className="text-xs text-slate-500 italic">Loading wearable status...</div>
+                      ) : !wearableData || wearableData.status === "no_data" ? (
+                        <div className="text-xs text-slate-500 italic">No wearable device data for this case yet.</div>
+                      ) : wearableData.status === "not_responding" ? (
+                        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-700 font-bold mt-0.5">
+                            ⚠️
+                          </div>
+                          <div className="text-xs text-amber-900 leading-relaxed">
+                            <span className="font-bold">
+                              No wearable data in {wearableData.minutes_since_last_reading != null ? Math.round(wearableData.minutes_since_last_reading) : "30+"} minutes
+                            </span>
+                            {" "}— device may be offline or removed. A counsellor should check in directly.
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+                            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                              <div className="text-[10px] text-slate-500 font-bold uppercase">Heart Rate</div>
+                              <div className="font-extrabold text-slate-800 text-sm mt-1">
+                                {wearableData.current_reading?.heart_rate != null ? `${Math.round(wearableData.current_reading.heart_rate)} bpm` : "—"}
+                              </div>
+                            </div>
+                            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                              <div className="text-[10px] text-slate-500 font-bold uppercase">SpO2</div>
+                              <div className="font-extrabold text-slate-800 text-sm mt-1">
+                                {wearableData.current_reading?.spo2 != null ? `${Math.round(wearableData.current_reading.spo2)}%` : "—"}
+                              </div>
+                            </div>
+                            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                              <div className="text-[10px] text-slate-500 font-bold uppercase">Temperature</div>
+                              <div className="font-extrabold text-slate-800 text-sm mt-1">
+                                {wearableData.current_reading?.body_temperature != null ? `${Number(wearableData.current_reading.body_temperature).toFixed(1)}°C` : "—"}
+                              </div>
+                            </div>
+                          </div>
+                          {wearableData.analysis_text && (
+                            <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                              {wearableData.analysis_text}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Mental Status Progress Overview */}
                     {dailyBreakdown && (
                       <div className="flex items-center justify-between border-t border-slate-200 pt-4 pb-1">
@@ -1489,14 +1620,18 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   ))}
                 </select>
                 <button
-                  onClick={() => selectedCaseId && syncBiosignals(selectedCaseId)}
-                  disabled={bioSyncLoading || !selectedCaseId}
+                  onClick={() => {
+                    if (!selectedCaseId) return;
+                    syncBiosignals(selectedCaseId); // demo tiles: Sleep, Skin Conductance (unchanged)
+                    fetchWearableAnalysis(selectedCaseId); // real tiles: Heart Rate, SpO2
+                  }}
+                  disabled={bioSyncLoading || wearableLoading || !selectedCaseId}
                   className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-all flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={bioSyncLoading ? "animate-spin" : ""}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={(bioSyncLoading || wearableLoading) ? "animate-spin" : ""}>
                     <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l6.23-1.19"/>
                   </svg>
-                  {bioSyncLoading ? "Syncing..." : "Simulate Sync"}
+                  {(bioSyncLoading || wearableLoading) ? "Syncing..." : "Simulate Sync"}
                 </button>
               </div>
             </div>
@@ -1519,8 +1654,18 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <div>
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Connection Status</div>
                   <div className="flex items-center gap-1 mt-0.5">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    <span className="font-bold text-green-700 text-xs">{bioData?.device_status || "Connected"} (Demo Data)</span>
+                    <span className={`w-2 h-2 rounded-full animate-pulse ${
+                      liveHeartRate != null || liveSpo2 != null ? "bg-green-500" : isRohanCase2 ? "bg-amber-400" : "bg-slate-300"
+                    }`} />
+                    <span className={`font-bold text-xs ${
+                      liveHeartRate != null || liveSpo2 != null ? "text-green-700" : isRohanCase2 ? "text-amber-700" : "text-slate-400"
+                    }`}>
+                      {liveHeartRate != null || liveSpo2 != null
+                        ? "Heart Rate & SpO2: Live sensor data · Sleep & EDA: Demo data"
+                        : isRohanCase2
+                        ? "Awaiting live wearable reading · Sleep & EDA: Demo data"
+                        : "No device connected for this case"}
+                    </span>
                   </div>
                 </div>
                 <div>
@@ -1541,9 +1686,15 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                     <span>Active Alert Context: {selectedCaseDetails.summary.risk_tier} RISK CASE</span>
                     <span className="px-2 py-0.5 bg-red-200 text-red-800 rounded-full text-[10px] font-extrabold">STATUS: ACTIVE</span>
                   </div>
-                  <p className="text-red-800 leading-relaxed">
-                    <strong>Biosignal Context:</strong> Sleep duration reduced ({bioData?.sleep?.duration_formatted || "6h 42m"}), elevated skin conductance ({bioData?.skin_conductance?.average_us || 2.8} µS) with {bioData?.skin_conductance?.stress_events || 4} physiological response markers. Contextual physiological observations reinforce monitored conversational distress signals.
-                  </p>
+                  {isRohanCase2 ? (
+                    <p className="text-red-800 leading-relaxed">
+                      <strong>Biosignal Context:</strong> Sleep duration reduced ({bioData?.sleep?.duration_formatted || "6h 42m"}), elevated skin conductance ({bioData?.skin_conductance?.average_us || 2.8} µS) with {bioData?.skin_conductance?.stress_events || 4} physiological response markers. Contextual physiological observations reinforce monitored conversational distress signals.
+                    </p>
+                  ) : (
+                    <p className="text-red-800 leading-relaxed">
+                      <strong>Biosignal Context:</strong> No wearable device is attached to this case — this alert is based on conversational signals only.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -1592,23 +1743,73 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep</div>
-                  <div className="font-extrabold text-purple-700 text-sm mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                  {isRohanCase2 ? (
+                    <>
+                      <div className="font-extrabold text-purple-700 text-sm mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                      <div className="text-[8px] font-bold uppercase mt-1 text-slate-400">Demo</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
+                    </>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Heart Rate</div>
-                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.heart_rate_status || "Normal"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.heart_rate?.resting_bpm || 74} BPM</div>
+                  {liveHeartRate != null ? (
+                    <>
+                      <div className="font-extrabold text-slate-800 text-sm mt-1">{heartRateStatusLabel}</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">{Math.round(liveHeartRate)} BPM</div>
+                      <div className="text-[8px] font-bold uppercase mt-1 text-green-600">● Live</div>
+                    </>
+                  ) : isRohanCase2 ? (
+                    <>
+                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">No live reading yet</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
+                    </>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Skin Conductance</div>
-                  <div className="font-extrabold text-orange-600 text-sm mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
+                  {isRohanCase2 ? (
+                    <>
+                      <div className="font-extrabold text-orange-600 text-sm mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
+                      <div className="text-[8px] font-bold uppercase mt-1 text-slate-400">Demo</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
+                    </>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Blood Oxygen</div>
-                  <div className="font-extrabold text-teal-700 text-sm mt-1">{holisticData?.signals?.spo2_status || "Normal"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.blood_oxygen?.average_spo2 || 98}% SpO2</div>
+                  {liveSpo2 != null ? (
+                    <>
+                      <div className="font-extrabold text-teal-700 text-sm mt-1">{spo2StatusLabel}</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">{Math.round(liveSpo2)}% SpO2</div>
+                      <div className="text-[8px] font-bold uppercase mt-1 text-green-600">● Live</div>
+                    </>
+                  ) : isRohanCase2 ? (
+                    <>
+                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">No live reading yet</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1651,79 +1852,87 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 </span>
               </div>
 
-              {/* 5 Sleep KPI Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Duration</div>
-                  <div className="text-xl font-black text-slate-800">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
-                  <div className="text-[10px] text-slate-400">{bioData?.sleep?.duration_minutes || 402} minutes</div>
-                </div>
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Quality</div>
-                  <div className="text-xl font-black text-purple-700">{bioData?.sleep?.quality || "Moderate"}</div>
-                  <div className="text-[10px] text-slate-400">Score: {bioData?.sleep?.status || "Below Baseline"}</div>
-                </div>
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Consistency</div>
-                  <div className="text-xl font-black text-slate-800">{bioData?.sleep?.consistency || 72}%</div>
-                  <div className="text-[10px] text-slate-400">Regularity index</div>
-                </div>
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Disturbances</div>
-                  <div className="text-xl font-black text-orange-600">{bioData?.sleep?.disturbances || 3}</div>
-                  <div className="text-[10px] text-slate-400">Awakening markers</div>
-                </div>
-                <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Recovery</div>
-                  <div className="text-xl font-black text-teal-700">{bioData?.sleep?.recovery || "Moderate"}</div>
-                  <div className="text-[10px] text-slate-400">Restorative index</div>
-                </div>
-              </div>
+              {isRohanCase2 ? (
+                <>
+                  {/* 5 Sleep KPI Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Duration</div>
+                      <div className="text-xl font-black text-slate-800">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                      <div className="text-[10px] text-slate-400">{bioData?.sleep?.duration_minutes || 402} minutes</div>
+                    </div>
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Quality</div>
+                      <div className="text-xl font-black text-purple-700">{bioData?.sleep?.quality || "Moderate"}</div>
+                      <div className="text-[10px] text-slate-400">Score: {bioData?.sleep?.status || "Below Baseline"}</div>
+                    </div>
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Consistency</div>
+                      <div className="text-xl font-black text-slate-800">{bioData?.sleep?.consistency || 72}%</div>
+                      <div className="text-[10px] text-slate-400">Regularity index</div>
+                    </div>
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase">Disturbances</div>
+                      <div className="text-xl font-black text-orange-600">{bioData?.sleep?.disturbances || 3}</div>
+                      <div className="text-[10px] text-slate-400">Awakening markers</div>
+                    </div>
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep Recovery</div>
+                      <div className="text-xl font-black text-teal-700">{bioData?.sleep?.recovery || "Moderate"}</div>
+                      <div className="text-[10px] text-slate-400">Restorative index</div>
+                    </div>
+                  </div>
 
-              {/* Sleep History Table */}
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-800 text-sm">Sleep History Log (Last 4 Days)</h4>
-                <div className="rounded-xl overflow-hidden border border-slate-200">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                        <th className="px-4 py-2.5 text-left">Date</th>
-                        <th className="px-4 py-2.5 text-left">Sleep Duration</th>
-                        <th className="px-4 py-2.5 text-left">Quality Rating</th>
-                        <th className="px-4 py-2.5 text-left">Recovery Index</th>
-                        <th className="px-4 py-2.5 text-left">Awakening Disturbances</th>
-                        <th className="px-4 py-2.5 text-left">Sleep Efficiency</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bioData?.sleep_history && bioData.sleep_history.length > 0 ? (
-                        bioData.sleep_history.map((row: any, idx: number) => (
-                          <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50">
-                            <td className="px-4 py-3 font-bold text-slate-800">{row.date}</td>
-                            <td className="px-4 py-3 text-slate-700 font-semibold">{row.duration}</td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                row.quality === "Good" ? "bg-green-50 text-green-700 border border-green-200" :
-                                row.quality === "Moderate" ? "bg-purple-50 text-purple-700 border border-purple-200" :
-                                "bg-red-50 text-red-700 border border-red-200"
-                              }`}>
-                                {row.quality}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-slate-700">{row.recovery}</td>
-                            <td className="px-4 py-3 text-slate-700">{row.disturbances} wake events</td>
-                            <td className="px-4 py-3 font-semibold text-slate-800">{row.efficiency || "82%"}</td>
+                  {/* Sleep History Table */}
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-slate-800 text-sm">Sleep History Log (Last 4 Days)</h4>
+                    <div className="rounded-xl overflow-hidden border border-slate-200">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                            <th className="px-4 py-2.5 text-left">Date</th>
+                            <th className="px-4 py-2.5 text-left">Sleep Duration</th>
+                            <th className="px-4 py-2.5 text-left">Quality Rating</th>
+                            <th className="px-4 py-2.5 text-left">Recovery Index</th>
+                            <th className="px-4 py-2.5 text-left">Awakening Disturbances</th>
+                            <th className="px-4 py-2.5 text-left">Sleep Efficiency</th>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-6 text-center text-slate-400">No sleep history logged for this case.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {bioData?.sleep_history && bioData.sleep_history.length > 0 ? (
+                            bioData.sleep_history.map((row: any, idx: number) => (
+                              <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <td className="px-4 py-3 font-bold text-slate-800">{row.date}</td>
+                                <td className="px-4 py-3 text-slate-700 font-semibold">{row.duration}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    row.quality === "Good" ? "bg-green-50 text-green-700 border border-green-200" :
+                                    row.quality === "Moderate" ? "bg-purple-50 text-purple-700 border border-purple-200" :
+                                    "bg-red-50 text-red-700 border border-red-200"
+                                  }`}>
+                                    {row.quality}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-slate-700">{row.recovery}</td>
+                                <td className="px-4 py-3 text-slate-700">{row.disturbances} wake events</td>
+                                <td className="px-4 py-3 font-semibold text-slate-800">{row.efficiency || "82%"}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="px-4 py-6 text-center text-slate-400">No sleep history logged for this case.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="p-6 text-center text-xs text-slate-400 italic bg-slate-50 border border-slate-100 rounded-xl">
+                  No device data — this case has no wearable attached.
                 </div>
-              </div>
+              )}
             </div>
 
             {/* SECTION: HEART RATE, SKIN CONDUCTANCE, SPO2 GRID */}
@@ -1732,26 +1941,34 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <h4 className="font-bold text-slate-900 text-sm">Heart Rate (PPG)</h4>
-                  <span className="text-[10px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                    {bioData?.heart_rate?.status || "Normal"}
-                  </span>
+                  {liveHeartRate != null ? (
+                    <span className="text-[10px] font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                      ● Live
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                      {isRohanCase2 ? "No live reading" : "No device"}
+                    </span>
+                  )}
                 </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Resting Heart Rate</span>
-                    <span className="font-bold text-slate-900">{bioData?.heart_rate?.resting_bpm || 74} BPM</span>
+                {liveHeartRate != null ? (
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1 border-b border-slate-50">
+                      <span className="text-slate-600">Current Heart Rate</span>
+                      <span className="font-bold text-slate-900">{Math.round(liveHeartRate)} BPM</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-50">
+                      <span className="text-slate-600">Status</span>
+                      <span className="font-bold text-slate-900">{heartRateStatusLabel}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Average Heart Rate</span>
-                    <span className="font-bold text-slate-900">{bioData?.heart_rate?.average_bpm || 78} BPM</span>
+                ) : (
+                  <div className="text-xs text-slate-400 italic py-2">
+                    {isRohanCase2 ? "Wearable has not reported a heart rate reading recently." : "No wearable device attached to this case."}
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Daily Range (Min–Max)</span>
-                    <span className="font-bold text-slate-900">{bioData?.heart_rate?.range_formatted || "62–101 BPM"}</span>
-                  </div>
-                </div>
+                )}
                 <div className="text-[10px] text-slate-400 pt-1">
-                  * Simulated photoplethysmography sensor stream
+                  {liveHeartRate != null ? "Live ThingSpeak-backed wearable reading" : "* No sensor data available"}
                 </div>
               </div>
 
@@ -1759,53 +1976,73 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <h4 className="font-bold text-slate-900 text-sm">Skin Conductance (GSR)</h4>
-                  <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
-                    {bioData?.skin_conductance?.status || "Elevated"}
-                  </span>
+                  {isRohanCase2 ? (
+                    <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                      {bioData?.skin_conductance?.status || "Elevated"}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                      No device
+                    </span>
+                  )}
                 </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Average Conductance</span>
-                    <span className="font-bold text-slate-900">{bioData?.skin_conductance?.average_us || 2.8} µS</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Peak Conductance</span>
-                    <span className="font-bold text-slate-900">{bioData?.skin_conductance?.peak_us || 5.1} µS</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Stress Response Markers</span>
-                    <span className="font-bold text-orange-600">{bioData?.skin_conductance?.stress_events || 4} events</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-400 pt-1">
-                  * Prototype electrodermal activity telemetry
-                </div>
+                {isRohanCase2 ? (
+                  <>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between py-1 border-b border-slate-50">
+                        <span className="text-slate-600">Average Conductance</span>
+                        <span className="font-bold text-slate-900">{bioData?.skin_conductance?.average_us || 2.8} µS</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-50">
+                        <span className="text-slate-600">Peak Conductance</span>
+                        <span className="font-bold text-slate-900">{bioData?.skin_conductance?.peak_us || 5.1} µS</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-50">
+                        <span className="text-slate-600">Stress Response Markers</span>
+                        <span className="font-bold text-orange-600">{bioData?.skin_conductance?.stress_events || 4} events</span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-slate-400 pt-1">
+                      * Prototype electrodermal activity telemetry (Demo)
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-400 italic py-2">No wearable device attached to this case.</div>
+                )}
               </div>
 
               {/* Blood Oxygen & Respiratory Rate */}
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <h4 className="font-bold text-slate-900 text-sm">SpO2 & Respiration</h4>
-                  <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                    {bioData?.blood_oxygen?.status || "Normal"}
-                  </span>
+                  {liveSpo2 != null ? (
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                      ● Live
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                      {isRohanCase2 ? "No live reading" : "No device"}
+                    </span>
+                  )}
                 </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Average SpO2 Saturation</span>
-                    <span className="font-bold text-slate-900">{bioData?.blood_oxygen?.average_spo2 || 98}%</span>
+                {liveSpo2 != null ? (
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1 border-b border-slate-50">
+                      <span className="text-slate-600">Current SpO2 Saturation</span>
+                      <span className="font-bold text-slate-900">{Math.round(liveSpo2)}%</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-50">
+                      <span className="text-slate-600">Status</span>
+                      <span className="font-bold text-slate-900">{spo2StatusLabel}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Minimum SpO2 Recorded</span>
-                    <span className="font-bold text-slate-900">{bioData?.blood_oxygen?.min_spo2 || 96}%</span>
+                ) : (
+                  <div className="text-xs text-slate-400 italic py-2">
+                    {isRohanCase2 ? "Wearable has not reported an SpO2 reading recently." : "No wearable device attached to this case."}
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-600">Average Respiratory Rate</span>
-                    <span className="font-bold text-slate-900">{bioData?.respiratory_rate?.average_bpm || 15} breaths/min</span>
-                  </div>
-                </div>
+                )}
                 <div className="text-[10px] text-slate-400 pt-1">
-                  * Simulated pulse oximetry & respiratory rhythm
+                  {liveSpo2 != null ? "Live ThingSpeak-backed wearable reading" : "* No sensor data available"}
                 </div>
               </div>
             </div>
