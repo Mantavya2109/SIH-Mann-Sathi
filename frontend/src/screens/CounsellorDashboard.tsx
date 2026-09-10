@@ -53,6 +53,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [showExplain, setShowExplain] = useState(false);
   const [stageFilter, setStageFilter] = useState<"active" | "all">("active");
+  const [selectedHistoryDate, setSelectedHistoryDate] = useState<string | null>(null);
   // Bump this to force case details to re-fetch after a Sync (so Today/Yesterday recalculates)
   const [caseDetailsRefreshKey, setCaseDetailsRefreshKey] = useState(0);
 
@@ -61,7 +62,12 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const [holisticData, setHolisticData] = useState<any>(null);
   const [bioSyncLoading, setBioSyncLoading] = useState(false);
 
-  const navItems = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Settings"];
+  // Location Telemetry State
+  const [locationData, setLocationData] = useState<any>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  const navItems = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Location", "Settings"];
 
   const getApiUrl = (path: string) => {
     const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -148,6 +154,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   useEffect(() => {
     // Clear details immediately during case transition to avoid stale state mixing
     setSelectedCaseDetails(null);
+    setSelectedHistoryDate(null);
     if (!selectedCaseId) {
       return;
     }
@@ -1128,67 +1135,198 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       </div>
                     </div>
 
-                    {/* Today vs Yesterday History Timeline Segments */}
+                    {/* Mental Status Progress Overview */}
                     {dailyBreakdown && (
-                      <div className="space-y-4 border-t border-slate-200 pt-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-bold text-slate-900 text-base">Mental Status Progress Overview</h3>
-                          <div className={`px-2.5 py-0.5 rounded text-xs font-bold ${
-                            dailyBreakdown.changeStatus === "WORSENING" ? "bg-red-100 text-red-700 border border-red-200" :
-                            dailyBreakdown.changeStatus === "IMPROVING" ? "bg-green-100 text-green-700 border-green-200" :
-                            "bg-slate-100 text-slate-700 border border-slate-200"
-                          }`}>
-                            Trend: {dailyBreakdown.changeStatus.replace("_", " ")}
-                          </div>
+                      <div className="flex items-center justify-between border-t border-slate-200 pt-4 pb-1">
+                        <div>
+                          <h3 className="font-bold text-slate-900 text-sm">Mental Status Progress Overview</h3>
+                          <p className="text-xs text-[#64748b]">Day-over-day distress evaluation (IST)</p>
                         </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {/* Yesterday's Turns */}
-                          <div className="space-y-3">
-                            <h4 className="font-semibold text-slate-700 text-sm flex items-center justify-between">
-                              <span>Yesterday's Conversations (IST)</span>
-                              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold">
-                                {dailyBreakdown.yesterdayTurns.length} turns
-                              </span>
-                            </h4>
-                            {dailyBreakdown.yesterdayTurns.length > 0 ? (
-                              dailyBreakdown.yesterdayTurns.map(turn => renderHistoryTurn(turn))
-                            ) : (
-                              <div className="p-6 text-center border border-dashed rounded-xl bg-slate-50 text-xs text-slate-400 font-medium">
-                                No turns recorded yesterday.
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Today's Turns */}
-                          <div className="space-y-3">
-                            <h4 className="font-semibold text-teal-700 text-sm flex items-center justify-between">
-                              <span>Today's Conversations (IST)</span>
-                              <span className="px-2 py-0.5 bg-teal-50 text-teal-700 rounded-full text-[10px] font-bold">
-                                {dailyBreakdown.todayTurns.length} turns
-                              </span>
-                            </h4>
-                            {dailyBreakdown.todayTurns.length > 0 ? (
-                              dailyBreakdown.todayTurns.map(turn => renderHistoryTurn(turn))
-                            ) : (
-                              <div className="p-6 text-center border border-dashed rounded-xl bg-slate-50 text-xs text-slate-400 font-medium">
-                                No turns recorded today.
-                              </div>
-                            )}
-                          </div>
+                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                          dailyBreakdown.changeStatus === "WORSENING" ? "bg-red-100 text-red-700 border border-red-200" :
+                          dailyBreakdown.changeStatus === "IMPROVING" ? "bg-green-100 text-green-700 border-green-200" :
+                          "bg-slate-100 text-slate-700 border border-slate-200"
+                        }`}>
+                          Trend: {dailyBreakdown.changeStatus.replace("_", " ")}
                         </div>
                       </div>
                     )}
 
-                    {/* Turn Analysis details (Entire History) */}
-                    <div className="space-y-4 border-t border-slate-200 pt-6">
-                      <h3 className="font-bold text-slate-900 text-base">All Check-in History Logs (IST)</h3>
-                      {selectedCaseDetails.history && selectedCaseDetails.history.length > 0 ? (
-                        selectedCaseDetails.history.map((turn: any) => renderHistoryTurn(turn))
-                      ) : (
-                        <div className="text-sm text-[#64748b] text-center p-8 bg-white border border-dashed rounded-2xl">No history turns recorded.</div>
-                      )}
-                    </div>
+                    {/* Conversation History & Day/Date Selection Bar */}
+                    {(() => {
+                      const allTurns: any[] = selectedCaseDetails.history || [];
+
+                      // 1. Group turns by IST date key ("YYYY-MM-DD")
+                      const turnsByDate: Record<string, any[]> = {};
+                      for (const turn of allTurns) {
+                        const dKey = getISTDateKey(turn.timestamp || turn.timestamp_unix);
+                        if (dKey) {
+                          if (!turnsByDate[dKey]) {
+                            turnsByDate[dKey] = [];
+                          }
+                          turnsByDate[dKey].push(turn);
+                        }
+                      }
+
+                      // 2. Sorted unique date keys descending (latest date first)
+                      const availableDateKeys = Object.keys(turnsByDate).sort((a, b) => b.localeCompare(a));
+
+                      // 3. Default to most recent available date if selectedHistoryDate is null or invalid
+                      const activeDateKey = selectedHistoryDate === "ALL"
+                        ? "ALL"
+                        : (selectedHistoryDate && availableDateKeys.includes(selectedHistoryDate))
+                        ? selectedHistoryDate
+                        : (availableDateKeys[0] || null);
+
+                      // 4. Filter turns for active selection
+                      const turnsForActiveDate = activeDateKey === "ALL"
+                        ? allTurns
+                        : (activeDateKey ? (turnsByDate[activeDateKey] || []) : []);
+
+                      // 5. Order: Latest message first (at the top), followed by older messages
+                      const sortedTurns = [...turnsForActiveDate].sort((a, b) => {
+                        const tA = parseToDate(a.timestamp || a.timestamp_unix)?.getTime() || 0;
+                        const tB = parseToDate(b.timestamp || b.timestamp_unix)?.getTime() || 0;
+                        return tB - tA; // Latest first
+                      });
+
+                      const now = new Date();
+                      const todayISTKey = getISTDateKey(now);
+                      const yesterdayISTKey = getISTDateKey(new Date(now.getTime() - 86400000));
+
+                      let activeDateDisplayLabel = "All Recorded History";
+                      if (activeDateKey && activeDateKey !== "ALL") {
+                        const sampleTurn = turnsByDate[activeDateKey]?.[0];
+                        const sampleDate = parseToDate(sampleTurn?.timestamp || sampleTurn?.timestamp_unix);
+                        const dateFormatted = sampleDate ? formatISTDate(sampleDate) : activeDateKey;
+                        if (activeDateKey === todayISTKey) {
+                          activeDateDisplayLabel = `Today (${dateFormatted})`;
+                        } else if (activeDateKey === yesterdayISTKey) {
+                          activeDateDisplayLabel = `Yesterday (${dateFormatted})`;
+                        } else {
+                          activeDateDisplayLabel = dateFormatted;
+                        }
+                      }
+
+                      return (
+                        <div className="space-y-4 border-t border-slate-200 pt-5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                              <h3 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
+                                Conversation History
+                              </h3>
+                              <p className="text-xs text-[#64748b] mt-0.5">
+                                Select a date to view check-in messages (latest message at top)
+                              </p>
+                            </div>
+                            {availableDateKeys.length > 0 && (
+                              <span className="text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg self-start sm:self-auto">
+                                Showing {sortedTurns.length} turn{sortedTurns.length !== 1 ? "s" : ""} from <strong className="text-slate-900">{activeDateDisplayLabel}</strong>
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Horizontal Day/Date Selection Bar */}
+                          {availableDateKeys.length > 0 ? (
+                            <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1">
+                              {availableDateKeys.map((dKey) => {
+                                const isSelected = activeDateKey === dKey;
+                                const turnsList = turnsByDate[dKey] || [];
+                                const sampleTurn = turnsList[0];
+                                const sampleDate = parseToDate(sampleTurn?.timestamp || sampleTurn?.timestamp_unix);
+                                const dateFormatted = sampleDate ? formatISTDate(sampleDate) : dKey;
+
+                                let pillTitle = dateFormatted;
+                                if (dKey === todayISTKey) {
+                                  pillTitle = `Today (${dateFormatted})`;
+                                } else if (dKey === yesterdayISTKey) {
+                                  pillTitle = `Yesterday (${dateFormatted})`;
+                                }
+
+                                return (
+                                  <button
+                                    key={dKey}
+                                    onClick={() => setSelectedHistoryDate(dKey)}
+                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs transition-all flex-shrink-0 border cursor-pointer ${
+                                      isSelected
+                                        ? "bg-teal-600 text-white border-teal-600 shadow-xs font-bold"
+                                        : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200 font-medium"
+                                    }`}
+                                    style={{ fontFamily: "Manrope, sans-serif" }}
+                                  >
+                                    <span className="flex items-center gap-1.5">
+                                      <svg
+                                        width="13"
+                                        height="13"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        className={isSelected ? "text-teal-100" : "text-slate-400"}
+                                      >
+                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                        <line x1="16" y1="2" x2="16" y2="6" />
+                                        <line x1="8" y1="2" x2="8" y2="6" />
+                                        <line x1="3" y1="10" x2="21" y2="10" />
+                                      </svg>
+                                      <span>{pillTitle}</span>
+                                    </span>
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                        isSelected
+                                          ? "bg-teal-700 text-white"
+                                          : "bg-slate-100 text-slate-600"
+                                      }`}
+                                    >
+                                      {turnsList.length}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+
+                              {/* All Dates option if multiple dates exist */}
+                              {availableDateKeys.length > 1 && (
+                                <button
+                                  onClick={() => setSelectedHistoryDate("ALL")}
+                                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs transition-all flex-shrink-0 border cursor-pointer ${
+                                    activeDateKey === "ALL"
+                                      ? "bg-teal-600 text-white border-teal-600 shadow-xs font-bold"
+                                      : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200 font-medium"
+                                  }`}
+                                  style={{ fontFamily: "Manrope, sans-serif" }}
+                                >
+                                  <span>All Dates</span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                      activeDateKey === "ALL"
+                                        ? "bg-teal-700 text-white"
+                                        : "bg-slate-100 text-slate-600"
+                                    }`}
+                                  >
+                                    {allTurns.length}
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+
+                          {/* Filtered Turns List (Latest First) */}
+                          {sortedTurns.length > 0 ? (
+                            <div className="space-y-4">
+                              {sortedTurns.map((turn: any) => renderHistoryTurn(turn))}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-[#64748b] text-center p-8 bg-white border border-dashed rounded-2xl">
+                              {allTurns.length === 0
+                                ? "No check-in conversations recorded for this case."
+                                : "No check-in messages found on the selected date."}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </>
                 );
               })() : (
@@ -1674,7 +1812,360 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
           </div>
         )}
 
-        {/* 6. SETTINGS VIEW */}
+        {/* 6. LOCATION VIEW */}
+        {activeNav === "Location" && (
+          <div className="space-y-6">
+            {/* Header & Case Selector */}
+            <div
+              className="p-6 rounded-2xl border border-[#e2e8f0] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4"
+              style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
+            >
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                      <circle cx="12" cy="10" r="3" />
+                    </svg>
+                  </div>
+                  <h2 className="font-bold text-slate-900 text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>
+                    Live Victim Geolocation & Telemetry
+                  </h2>
+                </div>
+                <p className="text-xs text-[#64748b] mt-1">
+                  Hardware GPS telemetry for victims in active critical distress triage (&gt; 60% distress threshold)
+                </p>
+              </div>
+
+              {/* Case Selection Dropdown */}
+              <div className="flex items-center gap-3">
+                <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Select Case:</label>
+                <select
+                  value={selectedCaseId || ""}
+                  onChange={(e) => setSelectedCaseId(e.target.value)}
+                  className="px-3.5 py-2 rounded-xl text-sm font-medium border border-slate-200 bg-slate-50 text-slate-800 outline-none focus:border-teal-500 transition-colors"
+                  style={{ fontFamily: "Manrope, sans-serif" }}
+                >
+                  {cases.map((c) => {
+                    const patientName = c.user?.name || (c.nhaa_ref.includes("ROHAN") ? "Rohan" : c.nhaa_ref.includes("ANANYA") ? "Ananya Patel" : "Patient");
+                    const caseNum = c.nhaa_ref.includes("CASE-1") ? "Case 1" : c.nhaa_ref.includes("CASE-2") ? "Case 2" : c.nhaa_ref;
+                    return (
+                      <option key={c.case_id} value={c.case_id}>
+                        {patientName} — {caseNum} ({c.latest_distress_score.toFixed(1)}% Distress {c.latest_distress_score > 60 ? "🚨 Critical" : "🔒 Non-Critical"})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+
+            {/* Quick Case Selection Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {cases.map((c) => {
+                const isSelected = selectedCaseId === c.case_id;
+                const patientName = c.user?.name || (c.nhaa_ref.includes("ROHAN") ? "Rohan" : c.nhaa_ref.includes("ANANYA") ? "Ananya Patel" : "Patient");
+                const caseLabel = c.nhaa_ref.includes("CASE-1") ? `${patientName} — Case 1` : c.nhaa_ref.includes("CASE-2") ? `${patientName} — Case 2` : `${patientName} (${c.nhaa_ref})`;
+                const isCritical = c.latest_distress_score > 60;
+
+                return (
+                  <button
+                    key={c.case_id}
+                    onClick={() => setSelectedCaseId(c.case_id)}
+                    className="p-4 rounded-2xl text-left transition-all border flex flex-col justify-between"
+                    style={{
+                      background: isSelected ? "#f0fdfa" : "#ffffff",
+                      borderColor: isSelected ? "#0d9488" : "#e2e8f0",
+                      boxShadow: isSelected ? "0 0 0 3px rgba(13,148,136,0.12)" : "0 1px 3px rgba(0,0,0,0.02)"
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-bold text-slate-900 text-sm" style={{ fontFamily: "Manrope, sans-serif" }}>
+                          {caseLabel}
+                        </p>
+                        <p className="text-[11px] text-slate-500 font-mono mt-0.5">{c.nhaa_ref}</p>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          isCritical
+                            ? "bg-red-100 text-red-700 border border-red-200 animate-pulse"
+                            : "bg-slate-100 text-slate-600 border border-slate-200"
+                        }`}
+                      >
+                        {isCritical ? "Critical (> 60%)" : "Locked (≤ 60%)"}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">Distress Score</span>
+                        <span className={`text-base font-bold ${isCritical ? "text-red-600" : "text-teal-600"}`}>
+                          {c.latest_distress_score.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-500 block">Location Status</span>
+                        <span className={`text-xs font-semibold ${isCritical ? "text-teal-700" : "text-slate-400"}`}>
+                          {isCritical ? "📍 Coordinates Active" : "🔒 Privacy Locked"}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Current Selected Case Location Display */}
+            {(() => {
+              const currentCase = cases.find(c => c.case_id === selectedCaseId) || cases[0];
+              if (!currentCase) {
+                return (
+                  <div className="p-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
+                    No case selected.
+                  </div>
+                );
+              }
+
+              const isCritical = currentCase.latest_distress_score > 60;
+              const isRohan = currentCase.nhaa_ref.includes("ROHAN") || currentCase.user?.name === "Rohan";
+              const isAnanya = currentCase.nhaa_ref.includes("ANANYA") || currentCase.user?.name?.includes("Ananya");
+              
+              const patientName = currentCase.user?.name || (isRohan ? "Rohan" : isAnanya ? "Ananya Patel" : "Patient");
+              const caseLabel = currentCase.nhaa_ref.includes("CASE-1") && isRohan
+                ? "Rohan / Case 1"
+                : currentCase.nhaa_ref.includes("CASE-2") && isRohan
+                ? "Rohan / Case 2"
+                : isRohan
+                ? "Rohan"
+                : isAnanya
+                ? "Ananya Patel / Case 1"
+                : patientName;
+
+              // NON-CRITICAL (Distress <= 60): Show Protected View
+              if (!isCritical) {
+                return (
+                  <div className="p-10 rounded-2xl border border-slate-200 bg-white text-center space-y-4 shadow-sm">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto border border-slate-200">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                    </div>
+                    <div className="max-w-md mx-auto space-y-2">
+                      <h3 className="text-lg font-bold text-slate-800" style={{ fontFamily: "Manrope, sans-serif" }}>
+                        Location unavailable — case is not currently critical.
+                      </h3>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        Per victim privacy safeguards and trauma-informed protocols, hardware GPS telemetry is gated and automatically unlocks only when a patient's canonical distress score reaches critical triage levels (<strong>&gt; 60%</strong>).
+                      </p>
+                    </div>
+
+                    <div className="inline-flex items-center gap-6 px-6 py-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Selected Case</span>
+                        <span className="font-semibold text-slate-900">{caseLabel}</span>
+                      </div>
+                      <div className="w-px h-6 bg-slate-200" />
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Current Distress</span>
+                        <span className="font-bold text-slate-900">{currentCase.latest_distress_score.toFixed(1)}%</span>
+                      </div>
+                      <div className="w-px h-6 bg-slate-200" />
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Unlock Threshold</span>
+                        <span className="font-semibold text-red-600">&gt; 60.0%</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // CRITICAL (Distress > 60): Show Live Map & Hardware Telemetry
+              const coords = isRohan
+                ? {
+                    lat: 16.4971,
+                    lon: 80.4992,
+                    place: "VIT-AP University, Amaravati, Andhra Pradesh",
+                    address: "VIT-AP University Campus, Beside AP Secretariat, Inavolu, Amaravati, Andhra Pradesh 522237, India",
+                    landmark: "Academic Block / Central Courtyard",
+                    minLon: 80.4850,
+                    minLat: 16.4880,
+                    maxLon: 80.5130,
+                    maxLat: 16.5060,
+                    deviceId: "MANN-IOT-GPS-082"
+                  }
+                : {
+                    lat: 17.6868,
+                    lon: 83.2185,
+                    place: "Visakhapatnam, Andhra Pradesh",
+                    address: "Siripuram / Beach Road Zone, Visakhapatnam, Andhra Pradesh 530003, India",
+                    landmark: "Siripuram Junction / RK Beach Corridor",
+                    minLon: 83.2000,
+                    minLat: 17.6750,
+                    maxLon: 83.2370,
+                    maxLat: 17.6980,
+                    deviceId: "MANN-IOT-GPS-104"
+                  };
+
+              const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${coords.minLon}%2C${coords.minLat}%2C${coords.maxLon}%2C${coords.maxLat}&layer=mapnik&marker=${coords.lat}%2C${coords.lon}`;
+
+              return (
+                <div className="space-y-6">
+                  {/* Critical Status Banner */}
+                  <div className="p-4 rounded-2xl bg-red-50 border border-red-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-red-800">
+                    <div className="flex items-center gap-3">
+                      <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
+                      <div>
+                        <p className="text-sm font-bold" style={{ fontFamily: "Manrope, sans-serif" }}>
+                          🚨 Critical Distress Triage Active: {caseLabel} ({currentCase.latest_distress_score.toFixed(1)}%)
+                        </p>
+                        <p className="text-xs text-red-600">
+                          Hardware GPS telemetry unlocked for emergency welfare and first-responder triage.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold bg-red-200/80 px-2.5 py-1 rounded-lg text-red-900 border border-red-300">
+                      Live Telemetry Stream
+                    </span>
+                  </div>
+
+                  {/* Main Map & HUD Grid */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Map Box (2 Cols) */}
+                    <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col">
+                      {/* Map Controls Bar */}
+                      <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-pulse" />
+                          <span className="text-xs font-mono font-bold tracking-wide text-teal-300 uppercase">
+                            GPS Fix: {coords.lat.toFixed(4)}° N, {coords.lon.toFixed(4)}° E
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          Target: <strong className="text-white">{caseLabel}</strong>
+                        </div>
+                      </div>
+
+                      {/* Large Map Frame */}
+                      <div className="relative w-full h-[460px] bg-slate-100">
+                        <iframe
+                          title="Victim Geolocation Map"
+                          src={osmEmbedUrl}
+                          className="w-full h-full border-0"
+                          loading="lazy"
+                        />
+
+                        {/* Top-Left HUD Overlay */}
+                        <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur-md text-white p-3.5 rounded-xl border border-slate-700 shadow-xl max-w-xs space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-green-400 animate-ping" />
+                            <span className="text-[11px] font-bold text-teal-300 tracking-wide uppercase">Live IoT Beacon</span>
+                          </div>
+                          <p className="text-xs font-semibold text-white leading-snug">{coords.place}</p>
+                          <p className="text-[10px] text-slate-300 font-mono">{coords.landmark}</p>
+                          <p className="text-[10px] text-teal-400 font-mono font-bold pt-0.5">Target: {caseLabel}</p>
+                        </div>
+
+                        {/* Bottom-Right Watermark */}
+                        <div className="absolute bottom-3 right-3 bg-amber-500/90 backdrop-blur-sm text-slate-950 font-bold px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider shadow">
+                          ⚠️ Simulated Hardware Telemetry (Demo)
+                        </div>
+                      </div>
+
+                      {/* Map Footer Info */}
+                      <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400">Address:</span>
+                          <span className="font-medium text-slate-800">{coords.address}</span>
+                        </div>
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lon}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-teal-600 font-semibold hover:underline"
+                        >
+                          Open in Google Maps ↗
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Hardware Telemetry & Quick Action Sidebar (1 Col) */}
+                    <div className="space-y-4">
+                      {/* Telemetry Status Card */}
+                      <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4 shadow-sm">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider" style={{ fontFamily: "Manrope, sans-serif" }}>
+                          Wearable Hardware Diagnostics
+                        </h4>
+
+                        <div className="space-y-3 text-xs">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <span className="text-slate-500">Hardware Beacon ID</span>
+                            <span className="font-mono font-bold text-slate-800">{coords.deviceId}</span>
+                          </div>
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <span className="text-slate-500">GPS Accuracy</span>
+                            <span className="font-semibold text-teal-700">± 3.8 meters (High Fix)</span>
+                          </div>
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <span className="text-slate-500">Battery Level</span>
+                            <span className="font-semibold text-slate-800">🔋 82% (Nominal)</span>
+                          </div>
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <span className="text-slate-500">Cellular Signal</span>
+                            <span className="font-semibold text-slate-800">📶 -68 dBm (4G LTE-M)</span>
+                          </div>
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <span className="text-slate-500">Altitude</span>
+                            <span className="font-semibold text-slate-800">24.5 m ASL</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">Telemetry Source</span>
+                            <span className="font-semibold text-slate-800">Simulated IoT Beacon</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Emergency Responder Actions */}
+                      <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3 shadow-sm">
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider" style={{ fontFamily: "Manrope, sans-serif" }}>
+                          Emergency Dispatch Protocols
+                        </h4>
+
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${coords.lat}, ${coords.lon}`);
+                            alert(`GPS Coordinates copied to clipboard: ${coords.lat}, ${coords.lon}`);
+                          }}
+                          className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition-colors flex items-center justify-center gap-2"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          Copy Exact GPS Coordinates
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            alert(`First-Responder Alert dispatched for ${caseLabel} at ${coords.place}. Coordinate packet: ${coords.lat}, ${coords.lon}`);
+                          }}
+                          className="w-full py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                          </svg>
+                          Notify Local Nodal Support / 112
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* 7. SETTINGS VIEW */}
         {activeNav === "Settings" && (
           <div className="rounded-2xl p-6 border border-[#e2e8f0] bg-white space-y-6">
             <div>

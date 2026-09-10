@@ -1,4 +1,9 @@
 import { useState, useRef, useEffect } from "react";
+import HomeTab from "../components/user/HomeTab";
+import MySupportTab from "../components/user/MySupportTab";
+import AppointmentsTab from "../components/user/AppointmentsTab";
+import CaseUpdatesTab from "../components/user/CaseUpdatesTab";
+import ResourcesTab from "../components/user/ResourcesTab";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -13,7 +18,7 @@ type Message = {
 
 const navItems = [
   { icon: HomeIcon, label: "Home" },
-  { icon: ChatIcon, label: "AI Check-in" },
+  { icon: ChatIcon, label: "Chat" },
   { icon: PulseIcon, label: "Biosignal Device" },
   { icon: SupportIcon, label: "My Support" },
   { icon: CalendarIcon, label: "Appointments" },
@@ -27,20 +32,22 @@ const initialMessages: Message[] = [
 ];
 
 export default function VictimChat({ user, onLogout }: Props) {
-  const [activeTab, setActiveTab] = useState<string>("AI Check-in");
+  // Default to Home on login
+  const [activeTab, setActiveTab] = useState<string>("Home");
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  
+
   // Biosignal Prototype State
   const [deviceConnected, setDeviceConnected] = useState(true);
   const [bioData, setBioData] = useState<any>(null);
-  const [bioLoading, setBioLoading] = useState(false);
   const [lastSyncText, setLastSyncText] = useState("Just now");
-  
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -49,7 +56,6 @@ export default function VictimChat({ user, onLogout }: Props) {
   useEffect(() => {
     async function loadUserBiosignals() {
       try {
-        setBioLoading(true);
         const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
         const res = await fetch(`${baseUrl}/api/biosignals/user/${user.id}`);
         if (res.ok) {
@@ -58,16 +64,16 @@ export default function VictimChat({ user, onLogout }: Props) {
         }
       } catch (err) {
         console.error("Failed to load biosignals:", err);
-      } finally {
-        setBioLoading(false);
       }
     }
     loadUserBiosignals();
   }, [user.id]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    if (activeTab === "Chat") {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, loading, activeTab]);
 
   useEffect(() => {
     if (initializedRef.current) return;
@@ -78,33 +84,24 @@ export default function VictimChat({ user, onLogout }: Props) {
         const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
         const formData = new FormData();
         formData.append("user_id", user.id);
-        
+
         const res = await fetch(`${baseUrl}/api/conversation/start`, {
           method: "POST",
-          body: formData
+          body: formData,
         });
         if (!res.ok) throw new Error("Failed to start session");
         const data = await res.json();
         setSessionId(data.session_id);
       } catch (err) {
         console.error("Session init failed:", err);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now(),
-            role: "ai",
-            text: "Connection failed. Please ensure the backend server is running and try refreshing the page."
-          }
-        ]);
       }
     }
     startSession();
-  }, []);
+  }, [user.id]);
 
   async function sendMessage(text: string) {
     if (loading || isRecording) return;
-    
-    // Add user message to UI immediately
+
     const userMsgId = Date.now();
     const userMsg: Message = { id: userMsgId, role: "user", text };
     setMessages((prev) => [...prev, userMsg]);
@@ -129,7 +126,7 @@ export default function VictimChat({ user, onLogout }: Props) {
       }
 
       const data = await res.json();
-      
+
       const newMessages: Message[] = [];
       if (data.response_text) {
         newMessages.push({
@@ -223,14 +220,6 @@ export default function VictimChat({ user, onLogout }: Props) {
             : msg
         )
       );
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 3,
-          role: "ai",
-          text: "I couldn't process your voice check-in. Please ensure the backend is available.",
-        },
-      ]);
     } finally {
       setLoading(false);
     }
@@ -240,7 +229,7 @@ export default function VictimChat({ user, onLogout }: Props) {
     if (loading || isRecording) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
+
       let mimeType = "";
       if (MediaRecorder.isTypeSupported("audio/webm")) {
         mimeType = "audio/webm";
@@ -251,24 +240,24 @@ export default function VictimChat({ user, onLogout }: Props) {
       } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
         mimeType = "audio/mp4";
       }
-      
+
       const options = mimeType ? { mimeType } : undefined;
       const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-      
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
-      
+
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
         stream.getTracks().forEach((track) => track.stop());
         await sendVoiceMessage(audioBlob);
       };
-      
+
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
@@ -328,55 +317,90 @@ export default function VictimChat({ user, onLogout }: Props) {
             </svg>
           </div>
           {sidebarOpen && (
-            <span className="text-white font-bold text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
+            <span className="text-white font-bold text-base tracking-tight" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
           )}
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 px-2 py-2 space-y-1">
+        {/* Navigation Items */}
+        <nav className="flex-1 px-2 py-2 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = activeTab === item.label;
             return (
               <button
                 key={item.label}
-                onClick={() => setActiveTab(item.label)}
+                onClick={() => {
+                  setActiveTab(item.label);
+                  if (item.label !== "Resources") {
+                    setSelectedExerciseId(null);
+                  }
+                }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
-                  isActive ? "text-white" : "text-blue-300 hover:text-white"
+                  isActive ? "text-white font-semibold" : "text-blue-200/80 hover:text-white hover:bg-white/5"
                 }`}
                 style={{
-                  background: isActive ? "rgba(255,255,255,0.12)" : "transparent",
+                  background: isActive ? "rgba(255,255,255,0.14)" : "transparent",
                   fontFamily: "Manrope, sans-serif",
                 }}
               >
                 <item.icon active={isActive} />
-                {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                {sidebarOpen && <span className="text-sm">{item.label}</span>}
               </button>
             );
           })}
         </nav>
 
-        {/* Bottom */}
-        <div className="px-2 py-4 space-y-1" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        {/* User Info & Logout */}
+        <div className="px-3 py-4 space-y-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          {sidebarOpen && (
+            <div className="px-2 py-1 text-xs text-blue-200/60 truncate font-medium">
+              Signed in as <strong className="text-white font-bold">{user.name}</strong>
+            </div>
+          )}
           <button
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-blue-300 hover:text-white transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-blue-200/80 hover:text-white hover:bg-white/5 transition-all"
             onClick={handleLogout}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
             </svg>
-            {sidebarOpen && <span className="text-sm font-medium">Profile</span>}
-          </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-blue-300 hover:text-white transition-all">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            {sidebarOpen && <span className="text-sm font-medium">Privacy & Security</span>}
+            {sidebarOpen && <span className="text-sm font-medium">Log out</span>}
           </button>
         </div>
       </div>
 
-      {/* MAIN VIEW */}
-      {activeTab === "Biosignal Device" ? (
+      {/* RENDER VIEWS */}
+      {activeTab === "Home" ? (
+        <HomeTab
+          user={user}
+          onNavigate={(tab) => setActiveTab(tab)}
+          onStartExercise={(exId) => {
+            setSelectedExerciseId(exId);
+            setActiveTab("Resources");
+          }}
+        />
+      ) : activeTab === "My Support" ? (
+        <MySupportTab
+          user={user}
+          onNavigate={(tab) => setActiveTab(tab)}
+        />
+      ) : activeTab === "Appointments" ? (
+        <AppointmentsTab
+          user={user}
+          onNavigate={(tab) => setActiveTab(tab)}
+        />
+      ) : activeTab === "Case Updates" ? (
+        <CaseUpdatesTab
+          user={user}
+          onNavigate={(tab) => setActiveTab(tab)}
+        />
+      ) : activeTab === "Resources" ? (
+        <ResourcesTab
+          user={user}
+          initialExerciseId={selectedExerciseId}
+        />
+      ) : activeTab === "Biosignal Device" ? (
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto" style={{ background: "#f7f8fb" }}>
           {/* Header */}
           <div
@@ -393,233 +417,63 @@ export default function VictimChat({ user, onLogout }: Props) {
                 </svg>
               </button>
               <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-bold text-[#0f172a] text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Device Hub</h2>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-700 border border-purple-200">
-                    Prototype / Demo Device
-                  </span>
-                </div>
-                <p className="text-xs text-[#64748b]">Real-time physiological telemetry preview (Demonstration Mode)</p>
+                <h1 className="font-bold text-[#0f172a] text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Device</h1>
+                <p className="text-xs text-[#64748b]">Manage and connect your wellness companion device</p>
               </div>
             </div>
 
             <button
-              onClick={() => setActiveTab("AI Check-in")}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-[#0d9488] bg-[#f0fdfa] border border-[#99f6e4] hover:bg-teal-100 transition-all"
+              onClick={() => setActiveTab("Chat")}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-[#0d9488] bg-[#f0fdfa] border border-[#99f6e4] hover:bg-teal-100 transition-all"
             >
-              ← Back to AI Check-in
+              ← Back to Chat
             </button>
           </div>
 
-          <div className="p-6 space-y-6 max-w-5xl">
-            {/* Device Connection Card */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${deviceConnected ? "bg-teal-50 text-teal-600" : "bg-slate-100 text-slate-400"}`}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-                    </svg>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-slate-900 text-base">Sahaaya Biosignal Prototype</h3>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${deviceConnected ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${deviceConnected ? "bg-green-600 animate-pulse" : "bg-slate-400"}`} />
-                        {deviceConnected ? "Connected" : "Not Connected"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">Connection: <span className="font-semibold text-slate-700">Demo / Simulated</span> • Last Sync: <span className="font-semibold text-slate-700">{lastSyncText}</span></p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setDeviceConnected(!deviceConnected);
-                      setLastSyncText("Just now");
-                    }}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                      deviceConnected
-                        ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        : "bg-teal-600 text-white hover:bg-teal-700 shadow-sm"
-                    }`}
-                  >
-                    {deviceConnected ? "Disconnect Device" : "Simulate Device Connection"}
-                  </button>
-                  {deviceConnected && (
-                    <button
-                      onClick={() => setLastSyncText("Just now")}
-                      className="px-3 py-2 rounded-xl text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition-all"
-                    >
-                      Sync Now
-                    </button>
-                  )}
-                </div>
+          <div className="p-6 md:p-12 max-w-lg mx-auto w-full flex-1 flex flex-col justify-center">
+            {/* Minimal Device Connection Card */}
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs text-center space-y-6">
+              <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center transition-all ${
+                deviceConnected ? "bg-teal-50 text-teal-600 shadow-xs" : "bg-slate-100 text-slate-400"
+              }`}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
               </div>
 
-              {/* Demo Notice */}
-              <div className="p-3 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-2.5 text-xs text-blue-800">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
-                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-                </svg>
-                <span><strong>Simulated Prototype Data:</strong> This interface demonstrates future integration with wearable biosensors for holistic well-being monitoring. No physical hardware is currently attached.</span>
+              <div className="space-y-2">
+                <div className="flex items-center justify-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${deviceConnected ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+                  <h2 className="text-xl font-bold text-slate-900" style={{ fontFamily: "Manrope, sans-serif" }}>
+                    {deviceConnected ? "Device Connected" : "Connect your device"}
+                  </h2>
+                </div>
+                <p className="text-sm text-slate-600 max-w-xs mx-auto">
+                  {deviceConnected
+                    ? "Your device is ready."
+                    : "Connect your biosignal device to begin."}
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={() => setDeviceConnected(!deviceConnected)}
+                  className={`w-full py-3.5 rounded-2xl text-sm font-bold transition-all shadow-xs ${
+                    deviceConnected
+                      ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      : "bg-[#0d9488] text-white hover:bg-[#0f766e] active:scale-[0.98]"
+                  }`}
+                >
+                  {deviceConnected ? "Disconnect Device" : "Connect Device"}
+                </button>
               </div>
             </div>
-
-            {/* Biosignal Variables Grid */}
-            {deviceConnected ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-slate-800 text-sm">Monitored Biosignal Channels</h4>
-                  <span className="text-[10px] uppercase font-bold text-slate-400">All Metrics Labeled: Demo Data</span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Sleep Duration & Quality */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500">Sleep Duration & Quality</div>
-                        <div className="text-2xl font-black text-slate-800 mt-1">
-                          {bioData?.sleep?.duration_formatted || "6h 42m"}
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-purple-50 border border-purple-100 text-purple-700">
-                        {bioData?.sleep?.quality || "Moderate"}
-                      </span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
-                      <span>Consistency: <strong>{bioData?.sleep?.consistency || 72}%</strong></span>
-                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                        DEMO DATA
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Heart Rate */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500">Heart Rate (PPG)</div>
-                        <div className="text-2xl font-black text-slate-800 mt-1">
-                          {bioData?.heart_rate?.resting_bpm || 74} <span className="text-xs font-normal text-slate-500">BPM</span>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 border border-green-100 text-green-700">
-                        {bioData?.heart_rate?.status || "Normal"}
-                      </span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
-                      <span>Range: <strong>{bioData?.heart_rate?.range_formatted || "62–101 BPM"}</strong></span>
-                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                        SIMULATED
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Skin Conductance */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500">Skin Conductance (GSR)</div>
-                        <div className="text-2xl font-black text-slate-800 mt-1">
-                          {bioData?.skin_conductance?.average_us || 2.8} <span className="text-xs font-normal text-slate-500">µS</span>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-orange-50 border border-orange-100 text-orange-700">
-                        {bioData?.skin_conductance?.status || "Elevated"}
-                      </span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
-                      <span>Stress Events: <strong>{bioData?.skin_conductance?.stress_events || 4} markers</strong></span>
-                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                        SIMULATED
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Blood Oxygen (SpO2) */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500">Blood Oxygen (SpO2)</div>
-                        <div className="text-2xl font-black text-slate-800 mt-1">
-                          {bioData?.blood_oxygen?.average_spo2 || 98}%
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-teal-50 border border-teal-100 text-teal-700">
-                        {bioData?.blood_oxygen?.status || "Normal"}
-                      </span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
-                      <span>Min recorded: <strong>{bioData?.blood_oxygen?.min_spo2 || 96}%</strong></span>
-                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                        DEMO DATA
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Respiratory Rate */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500">Respiratory Rate</div>
-                        <div className="text-2xl font-black text-slate-800 mt-1">
-                          {bioData?.respiratory_rate?.average_bpm || 15} <span className="text-xs font-normal text-slate-500">/ min</span>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 border border-green-100 text-green-700">
-                        {bioData?.respiratory_rate?.status || "Normal"}
-                      </span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
-                      <span>Rhythm: <strong>Regular</strong></span>
-                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                        SIMULATED
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Body Temperature */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-semibold text-slate-500">Skin Temperature</div>
-                        <div className="text-2xl font-black text-slate-800 mt-1">
-                          36.6 <span className="text-xs font-normal text-slate-500">°C</span>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-green-50 border border-green-100 text-green-700">
-                        Normal
-                      </span>
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 flex justify-between text-xs text-slate-600">
-                      <span>Circadian baseline: <strong>Stable</strong></span>
-                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
-                        DEMO DATA
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-12 text-center bg-white border border-dashed border-slate-300 rounded-2xl space-y-3">
-                <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-                  </svg>
-                </div>
-                <h4 className="font-bold text-slate-700 text-sm">Device Disconnected</h4>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">Click "Simulate Device Connection" above to activate the prototype biosignal feed.</p>
-              </div>
-            )}
           </div>
         </div>
       ) : (
-        /* MAIN CHAT */
+        /* MAIN CHAT VIEW (REPLACES "AI CHECK-IN") */
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
+          {/* Header without emergency button */}
           <div
             className="flex items-center justify-between px-6 py-4"
             style={{ background: "#ffffff", borderBottom: "1px solid #e2e8f0" }}
@@ -642,7 +496,7 @@ export default function VictimChat({ user, onLogout }: Props) {
                 </svg>
               </div>
               <div>
-                <h2 className="font-bold text-[#0f172a] text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi AI</h2>
+                <h2 className="font-bold text-[#0f172a] text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi Companion</h2>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full bg-green-500" />
                   <span className="text-xs text-[#64748b]">Private & secure</span>
@@ -650,21 +504,11 @@ export default function VictimChat({ user, onLogout }: Props) {
               </div>
             </div>
 
-            {/* Emergency button */}
-            <button
-              className="px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all"
-              style={{
-                background: "#fef2f2",
-                color: "#dc2626",
-                border: "1.5px solid #fecaca",
-                fontFamily: "Manrope, sans-serif",
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-              I need help now
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200">
+                End-to-End Encrypted
+              </span>
+            </div>
           </div>
 
           {/* Privacy banner */}
@@ -693,7 +537,7 @@ export default function VictimChat({ user, onLogout }: Props) {
                   </div>
                 )}
                 <div
-                  className="max-w-sm px-4 py-3 rounded-2xl text-sm leading-relaxed"
+                  className="max-w-sm md:max-w-md px-4 py-3 rounded-2xl text-sm leading-relaxed"
                   style={{
                     background: msg.role === "user" ? "#1e3a8a" : "#ffffff",
                     color: msg.role === "user" ? "#ffffff" : "#0f172a",
@@ -848,7 +692,6 @@ function BookIcon({ active }: { active: boolean }) {
     </svg>
   );
 }
-
 function PulseIcon({ active }: { active: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
