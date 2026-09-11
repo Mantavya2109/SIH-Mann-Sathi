@@ -1575,40 +1575,40 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
               {/* Multimodal Signal Matrix */}
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Text Analysis</div>
-                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.text_score || "40%"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">Linguistic</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Text Analysis</div>
+                  <div className="font-extrabold text-slate-800 text-2xl sm:text-3xl my-1 tracking-tight">{holisticData?.signals?.text_score || "40%"}</div>
+                  <div className="text-[10px] text-slate-400">Linguistic</div>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Voice Analysis</div>
-                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.voice_score || "59%"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">Acoustic</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Voice Analysis</div>
+                  <div className="font-extrabold text-slate-800 text-sm my-2">{holisticData?.signals?.voice_score || "59%"}</div>
+                  <div className="text-[10px] text-slate-400">Acoustic</div>
                 </div>
-                <div className="p-3 bg-teal-50/50 border border-teal-100 rounded-xl">
-                  <div className="text-[10px] text-teal-700 font-bold uppercase">Fusion Score</div>
-                  <div className="font-extrabold text-teal-800 text-sm mt-1">{holisticData?.signals?.fusion_score || "52%"}</div>
-                  <div className="text-[9px] text-teal-600 mt-0.5">Distress Tier: {holisticData?.signals?.risk_tier || "MODERATE"}</div>
+                <div className="p-3 bg-teal-50/50 border border-teal-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-teal-700 font-bold uppercase tracking-wider">Fusion Score</div>
+                  <div className="font-extrabold text-teal-800 text-2xl sm:text-3xl my-1 tracking-tight">{holisticData?.signals?.fusion_score || "52%"}</div>
+                  <div className="text-[10px] text-teal-600 font-medium">Distress Tier: {holisticData?.signals?.risk_tier || "MODERATE"}</div>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep</div>
-                  <div className="font-extrabold text-purple-700 text-sm mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Sleep</div>
+                  <div className="font-bold text-purple-700 text-xs mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
+                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Heart Rate</div>
-                  <div className="font-extrabold text-slate-800 text-sm mt-1">{holisticData?.signals?.heart_rate_status || "Normal"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.heart_rate?.resting_bpm || 74} BPM</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Heart Rate</div>
+                  <div className="font-bold text-slate-600 text-xs mt-1">{holisticData?.signals?.heart_rate_status || "Normal"}</div>
+                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.heart_rate?.resting_bpm || 74} BPM</div>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Skin Conductance</div>
-                  <div className="font-extrabold text-orange-600 text-sm mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Skin Conductance</div>
+                  <div className="font-bold text-orange-600 text-xs mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
+                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
                 </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Blood Oxygen</div>
-                  <div className="font-extrabold text-teal-700 text-sm mt-1">{holisticData?.signals?.spo2_status || "Normal"}</div>
-                  <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.blood_oxygen?.average_spo2 || 98}% SpO2</div>
+                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Blood Oxygen</div>
+                  <div className="font-bold text-teal-700 text-xs mt-1">{holisticData?.signals?.spo2_status || "Normal"}</div>
+                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.blood_oxygen?.average_spo2 || 98}% SpO2</div>
                 </div>
               </div>
 
