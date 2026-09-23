@@ -1741,97 +1741,65 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   <div className="font-extrabold text-teal-800 text-2xl sm:text-3xl my-1 tracking-tight">{holisticData?.signals?.fusion_score || "52%"}</div>
                   <div className="text-[10px] text-teal-600 font-medium">Distress Tier: {holisticData?.signals?.risk_tier || "MODERATE"}</div>
                 </div>
-<<<<<<< HEAD
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Sleep</div>
-                  {isRohanCase2 ? (
-                    <>
-                      <div className="font-extrabold text-purple-700 text-sm mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
-                      <div className="text-[8px] font-bold uppercase mt-1 text-slate-400">Demo</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
-                    </>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Heart Rate</div>
-                  {liveHeartRate != null ? (
-                    <>
-                      <div className="font-extrabold text-slate-800 text-sm mt-1">{heartRateStatusLabel}</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">{Math.round(liveHeartRate)} BPM</div>
-                      <div className="text-[8px] font-bold uppercase mt-1 text-green-600">● Live</div>
-                    </>
-                  ) : isRohanCase2 ? (
-                    <>
-                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">No live reading yet</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
-                    </>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Skin Conductance</div>
-                  {isRohanCase2 ? (
-                    <>
-                      <div className="font-extrabold text-orange-600 text-sm mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
-                      <div className="text-[8px] font-bold uppercase mt-1 text-slate-400">Demo</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
-                    </>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase">Blood Oxygen</div>
-                  {liveSpo2 != null ? (
-                    <>
-                      <div className="font-extrabold text-teal-700 text-sm mt-1">{spo2StatusLabel}</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">{Math.round(liveSpo2)}% SpO2</div>
-                      <div className="text-[8px] font-bold uppercase mt-1 text-green-600">● Live</div>
-                    </>
-                  ) : isRohanCase2 ? (
-                    <>
-                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">No live reading yet</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-sm mt-1">—</div>
-                      <div className="text-[9px] text-slate-400 mt-0.5">No device data</div>
-                    </>
-                  )}
-=======
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
                   <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Sleep</div>
-                  <div className="font-bold text-purple-700 text-xs mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
-                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                  {isRohanCase2 ? (
+                    <>
+                      <div className="font-bold text-purple-700 text-xs mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
+                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
+                      <div className="text-[9px] font-bold uppercase mt-1 text-slate-400">Demo</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
+                      <div className="text-[10px] text-slate-400">No device data</div>
+                    </>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
                   <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Heart Rate</div>
-                  <div className="font-bold text-slate-600 text-xs mt-1">{holisticData?.signals?.heart_rate_status || "Normal"}</div>
-                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.heart_rate?.resting_bpm || 74} BPM</div>
+                  {liveHeartRate != null ? (
+                    <>
+                      <div className="font-bold text-slate-600 text-xs mt-1">{heartRateStatusLabel}</div>
+                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{Math.round(liveHeartRate)} BPM</div>
+                      <div className="text-[9px] font-bold uppercase mt-1 text-green-600">● Live</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
+                      <div className="text-[10px] text-slate-400">{isRohanCase2 ? "No live reading yet" : "No device data"}</div>
+                    </>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
                   <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Skin Conductance</div>
-                  <div className="font-bold text-orange-600 text-xs mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
-                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
+                  {isRohanCase2 ? (
+                    <>
+                      <div className="font-bold text-orange-600 text-xs mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
+                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
+                      <div className="text-[9px] font-bold uppercase mt-1 text-slate-400">Demo</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
+                      <div className="text-[10px] text-slate-400">No device data</div>
+                    </>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
                   <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Blood Oxygen</div>
-                  <div className="font-bold text-teal-700 text-xs mt-1">{holisticData?.signals?.spo2_status || "Normal"}</div>
-                  <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.blood_oxygen?.average_spo2 || 98}% SpO2</div>
->>>>>>> 8d25d4e562bcbe1a586f69150eaebf795b63a1e9
+                  {liveSpo2 != null ? (
+                    <>
+                      <div className="font-bold text-teal-700 text-xs mt-1">{spo2StatusLabel}</div>
+                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{Math.round(liveSpo2)}% SpO2</div>
+                      <div className="text-[9px] font-bold uppercase mt-1 text-green-600">● Live</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
+                      <div className="text-[10px] text-slate-400">{isRohanCase2 ? "No live reading yet" : "No device data"}</div>
+                    </>
+                  )}
                 </div>
               </div>
 
