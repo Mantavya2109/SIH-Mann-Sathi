@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Outer Soft Mint Leaf/Heart Circle Background -->
+  <rect width="100" height="100" rx="28" fill="#10B981"/>
+  <!-- Leaf Details -->
+  <path d="M50 20C32.3269 20 18 34.3269 18 52C18 69.6731 32.3269 80 50 80C67.6731 80 82 69.6731 82 52C82 34.3269 67.6731 20 50 20Z" fill="#047857" opacity="0.3"/>
+  <path d="M50 24C35.6406 24 24 35.6406 24 50C24 64.3594 35.6406 74 50 74C64.3594 74 76 64.3594 76 50C76 35.6406 64.3594 24 50 24Z" fill="#ECFDF5"/>
+  <path d="M50 32C42 32 34 40 34 50C34 62 48 70 50 70C52 70 66 62 66 50C66 40 58 32 50 32Z" fill="#10B981"/>
+  <path d="M50 32V70" stroke="#047857" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

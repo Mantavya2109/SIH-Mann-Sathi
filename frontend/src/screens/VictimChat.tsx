@@ -4,6 +4,8 @@ import MySupportTab from "../components/user/MySupportTab";
 import AppointmentsTab from "../components/user/AppointmentsTab";
 import CaseUpdatesTab from "../components/user/CaseUpdatesTab";
 import ResourcesTab from "../components/user/ResourcesTab";
+import BrandLogo from "../components/common/BrandLogo";
+import { GlassSidebar } from "../components/interactive/GlassSidebar";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -25,6 +27,38 @@ const navItems = [
   { icon: FolderIcon, label: "Case Updates" },
   { icon: BookIcon, label: "Resources" },
 ];
+
+function renderNavItem(
+  item: (typeof navItems)[number],
+  activeTab: string,
+  setActiveTab: (tab: string) => void,
+  setSelectedExerciseId: (id: string | null) => void,
+  sidebarOpen: boolean,
+) {
+  const isActive = activeTab === item.label;
+  return (
+    <button
+      key={item.label}
+      onClick={() => {
+        setActiveTab(item.label);
+        if (item.label !== "Resources") {
+          setSelectedExerciseId(null);
+        }
+      }}
+      className={`group w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-left transition-all duration-200 ${
+        isActive
+          ? "bg-[#D8EADF] text-slate-900 font-semibold shadow-sm"
+          : "text-slate-600 hover:text-slate-900 hover:bg-emerald-50/60"
+      }`}
+      style={{ fontFamily: "Manrope, sans-serif" }}
+    >
+      <span className="group-hover:scale-110 transition-transform duration-200 flex-shrink-0">
+        <item.icon active={isActive} />
+      </span>
+      {sidebarOpen && <span className="text-sm">{item.label}</span>}
+    </button>
+  );
+}
 
 const initialMessages: Message[] = [
   { id: 1, role: "ai", text: "Hi. I'm here to check in with you today. You can take your time." },
@@ -300,75 +334,28 @@ export default function VictimChat({ user, onLogout }: Props) {
   const stage0Chips = ["I'm doing okay", "I'm worried", "I'm feeling overwhelmed", "I don't want to talk right now"];
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#f7f8fb" }}>
-      {/* SIDEBAR */}
-      <div
-        className={`${sidebarOpen ? "w-60" : "w-16"} flex-shrink-0 flex flex-col transition-all duration-300`}
-        style={{ background: "#1e3a8a", borderRight: "1px solid rgba(255,255,255,0.05)" }}
-      >
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: "rgba(255,255,255,0.12)" }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
-              <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
-            </svg>
-          </div>
-          {sidebarOpen && (
-            <span className="text-white font-bold text-base tracking-tight" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
-          )}
-        </div>
-
-        {/* Navigation Items */}
-        <nav className="flex-1 px-2 py-2 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
-            const isActive = activeTab === item.label;
-            return (
-              <button
-                key={item.label}
-                onClick={() => {
-                  setActiveTab(item.label);
-                  if (item.label !== "Resources") {
-                    setSelectedExerciseId(null);
-                  }
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
-                  isActive ? "text-white font-semibold" : "text-blue-200/80 hover:text-white hover:bg-white/5"
-                }`}
-                style={{
-                  background: isActive ? "rgba(255,255,255,0.14)" : "transparent",
-                  fontFamily: "Manrope, sans-serif",
-                }}
-              >
-                <item.icon active={isActive} />
-                {sidebarOpen && <span className="text-sm">{item.label}</span>}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* User Info & Logout */}
-        <div className="px-3 py-4 space-y-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-          {sidebarOpen && (
-            <div className="px-2 py-1 text-xs text-blue-200/60 truncate font-medium">
-              Signed in as <strong className="text-white font-bold">{user.name}</strong>
-            </div>
-          )}
-          <button
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-blue-200/80 hover:text-white hover:bg-white/5 transition-all"
-            onClick={handleLogout}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-              <polyline points="16 17 21 12 16 7"/>
-              <line x1="21" y1="12" x2="9" y2="12"/>
-            </svg>
-            {sidebarOpen && <span className="text-sm font-medium">Log out</span>}
-          </button>
-        </div>
-      </div>
+    <div className="flex h-screen overflow-hidden bg-transparent">
+      {/* FLOATING GLASS SIDEBAR */}
+      <GlassSidebar
+        activeTab={activeTab.toLowerCase()}
+        onTabChange={(id) => {
+          const tabMap: Record<string, string> = {
+            home: "Home",
+            chat: "Chat",
+            wellness: "Home",
+            resources: "Resources",
+            appointments: "Appointments",
+            insights: "Home",
+            breathing: "Resources",
+            mood: "Home",
+            journal: "Home",
+            emergency: "Home"
+          };
+          setActiveTab(tabMap[id] || "Home");
+        }}
+        user={user}
+        onLogout={handleLogout}
+      />
 
       {/* RENDER VIEWS */}
       {activeTab === "Home" ? (
@@ -401,7 +388,7 @@ export default function VictimChat({ user, onLogout }: Props) {
           initialExerciseId={selectedExerciseId}
         />
       ) : activeTab === "Biosignal Device" ? (
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto" style={{ background: "#f7f8fb" }}>
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-[#E2EFE9]">
           {/* Header */}
           <div
             className="flex items-center justify-between px-6 py-4"
@@ -432,9 +419,9 @@ export default function VictimChat({ user, onLogout }: Props) {
 
           <div className="p-6 md:p-12 max-w-lg mx-auto w-full flex-1 flex flex-col justify-center">
             {/* Minimal Device Connection Card */}
-            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs text-center space-y-6">
-              <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center transition-all ${
-                deviceConnected ? "bg-teal-50 text-teal-600 shadow-xs" : "bg-slate-100 text-slate-400"
+            <div className="bg-white rounded-3xl p-8 border border-emerald-100/40 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out text-center space-y-6">
+              <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center transition-all duration-200 hover:scale-110 ${
+                deviceConnected ? "bg-teal-50 text-teal-600 shadow-xs" : "bg-[#D8EADF] text-slate-400"
               }`}>
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
@@ -461,7 +448,7 @@ export default function VictimChat({ user, onLogout }: Props) {
                   className={`w-full py-3.5 rounded-2xl text-sm font-bold transition-all shadow-xs ${
                     deviceConnected
                       ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      : "bg-[#0d9488] text-white hover:bg-[#0f766e] active:scale-[0.98]"
+                      : "bg-[#18181B] text-white hover:bg-slate-800 active:scale-[0.98]"
                   }`}
                 >
                   {deviceConnected ? "Disconnect Device" : "Connect Device"}
@@ -634,8 +621,7 @@ export default function VictimChat({ user, onLogout }: Props) {
               <button
                 onClick={() => input.trim() && sendMessage(input.trim())}
                 disabled={loading || isRecording || !input.trim()}
-                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-[0.96] disabled:opacity-50"
-                style={{ background: "#0d9488" }}
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-[0.96] disabled:opacity-50 bg-[#18181B] hover:bg-slate-800"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round">
                   <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -652,49 +638,49 @@ export default function VictimChat({ user, onLogout }: Props) {
 // Icon components
 function HomeIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
     </svg>
   );
 }
 function ChatIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     </svg>
   );
 }
 function SupportIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
     </svg>
   );
 }
 function CalendarIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
     </svg>
   );
 }
 function FolderIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
     </svg>
   );
 }
 function BookIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
     </svg>
   );
 }
 function PulseIcon({ active }: { active: boolean }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "white" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
       <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
     </svg>
   );
