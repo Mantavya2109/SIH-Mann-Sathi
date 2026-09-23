@@ -9,6 +9,8 @@ import {
   Area,
   AreaChart,
 } from "recharts";
+import BrandLogo from "../components/common/BrandLogo";
+import { StagedAIInsight } from "../components/interactive/StagedAIInsight";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -22,6 +24,7 @@ interface PrioritizedCase {
   stage: string;
   latest_distress_score: number;
   risk_tier: string;
+  priority_reason?: string;
   trend: "rising" | "falling" | "stable";
   user?: {
     name: string;
@@ -469,25 +472,21 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const dailyBreakdown = getDailyBreakdown();
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "#f8fafc", fontFamily: "Inter, sans-serif" }}>
+    <div className="min-h-screen flex flex-col bg-transparent" style={{ fontFamily: "Inter, sans-serif" }}>
+
       {/* TOP HEADER */}
       <header
         className="flex items-center justify-between px-6 py-4 shadow-sm"
         style={{ background: "#ffffff", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, zIndex: 40 }}
       >
         <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "#0f172a" }}>
-              <span className="text-white font-bold">MS</span>
-            </div>
-            <span className="font-bold text-[#0f172a] text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi</span>
-          </div>
+          <BrandLogo subtitle="Counsellor Portal" />
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => (
               <button
                 key={item}
                 onClick={() => setActiveNav(item)}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105"
                 style={{
                   background: activeNav === item ? "#f0fdfa" : "transparent",
                   color: activeNav === item ? "#0d9488" : "#475569",
@@ -548,7 +547,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               ].map((card) => (
                 <div
                   key={card.label}
-                  className="p-5 rounded-2xl border"
+                  className="p-5 rounded-3xl border hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out cursor-default"
                   style={{ background: card.bg, borderColor: card.border }}
                 >
                   <div className="flex items-start justify-between">
@@ -593,7 +592,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   </div>
                 </div>
 
-                <div className="rounded-2xl overflow-hidden border border-[#e2e8f0]" style={{ background: "#ffffff" }}>
+                <div className="rounded-3xl overflow-hidden border border-emerald-100/40 hover:shadow-sm transition-all duration-300" style={{ background: "#ffffff" }}>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#f8fafc]" style={{ borderBottom: "1px solid #f1f5f9" }}>
@@ -639,14 +638,17 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                                 </span>
                               </td>
                               <td className="px-4 py-4">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                                  c.priority_level === "CRITICAL" ? "bg-red-100 text-red-700 border border-red-200" :
-                                  c.priority_level === "HIGH" ? "bg-orange-100 text-orange-700 border border-orange-200" :
-                                  c.priority_level === "MEDIUM" ? "bg-amber-100 text-amber-700 border border-amber-200" : "bg-green-100 text-green-700 border border-green-200"
-                                }`}>
-                                  {c.priority_level || c.risk_tier}
-                                </span>
-                              </td>
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 w-max ${
+                                c.priority_level === "CRITICAL" ? "bg-red-100 text-red-700 border border-red-200" :
+                                c.priority_level === "HIGH" ? "bg-orange-100 text-orange-700 border border-orange-200" :
+                                c.priority_level === "MEDIUM" ? "bg-amber-100 text-amber-700 border border-amber-200" : "bg-green-100 text-green-700 border border-green-200"
+                              }`}>
+                                {(c.priority_level === "CRITICAL" || c.priority_level === "HIGH") && (
+                                  <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+                                )}
+                                <span>{c.priority_level || c.risk_tier}</span>
+                              </span>
+                            </td>
                               <td className="px-4 py-4 text-slate-700 text-xs font-medium">
                                 {c.days_since_last_checkin !== undefined && c.days_since_last_checkin !== null ? (
                                   c.days_since_last_checkin < 0.0007 ? "Just now" :
@@ -671,81 +673,16 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
               {/* SIDEBAR VIEW CARD */}
               <div className="space-y-4">
-                {/* PATIENT BRIEF PROFILE */}
-                <div className="rounded-2xl p-5 border border-slate-200 bg-white shadow-xs">
-                  <h3 className="font-bold text-slate-900 text-sm mb-3 flex items-center justify-between">
-                    <span>AI Case Insight</span>
-                    {selectedCase?.priority_level === "CRITICAL" && (
-                      <span className="animate-ping w-2 h-2 rounded-full bg-red-600 border border-red-700" />
-                    )}
-                  </h3>
-                  {selectedCase ? (
-                    <div className="space-y-4">
-                      <div>
-                        <div className="text-xs text-[#64748b]">Patient Name</div>
-                        <div className="font-bold text-slate-900 text-base">{selectedCase.user?.name}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-[#64748b]">Email / Nha Ref</div>
-                        <div className="text-xs text-slate-800 font-semibold">{selectedCase.user?.email} • {selectedCase.nhaa_ref}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-[#64748b]">Latest Distress / Priority Score</div>
-                        <div className="flex items-baseline gap-2 mt-0.5">
-                          <span className="text-xl font-extrabold text-red-600">{selectedCase.latest_distress_score}%</span>
-                          <span className="text-xs text-slate-500 font-medium">(Priority Rank: {selectedCase.priority_score ? selectedCase.priority_score.toFixed(1) : "0.0"})</span>
-                        </div>
-                      </div>
-
-                      {selectedCase.priority_reason && (
-                        <div>
-                          <div className="text-xs text-[#64748b] mb-1 font-bold">Triage Reason</div>
-                          <p className="text-xs text-slate-700 bg-teal-50/10 p-2.5 rounded-xl border border-teal-100/50 leading-relaxed italic">
-                            "{selectedCase.priority_reason}"
-                          </p>
-                        </div>
-                      )}
-
-                      {latestTurn && (
-                        <div>
-                          <div className="text-xs text-[#64748b] mb-1.5 font-bold">Contributing Distress Indicators</div>
-                          <div className="space-y-1">
-                            {latestTurn.safety_attention && (
-                              <div className="text-xs text-red-600 font-semibold bg-red-50 p-1.5 rounded-lg border border-red-100">
-                                ⚠️ Crisis flag: High distress indicators flagged in text.
-                              </div>
-                            )}
-                            {latestTurn.internal_analysis?.conversational_features?.filler_count > 0 && (
-                              <div className="text-xs text-slate-600 font-medium">
-                                • High speech hesitation ({latestTurn.internal_analysis.conversational_features.filler_count} fillers)
-                              </div>
-                            )}
-                            {latestTurn.internal_analysis?.text_analysis_output?.emotion_category && (
-                              <div className="text-xs text-slate-600 font-medium">
-                                • Emotion categorized as "{latestTurn.internal_analysis.text_analysis_output.emotion_category}"
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => setShowExplain(!showExplain)}
-                        className="text-xs font-semibold text-teal-600 hover:underline flex items-center gap-1"
-                      >
-                        {showExplain ? "Hide reasoning" : "Why did the system flag this?"}
-                      </button>
-
-                      {showExplain && (
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 leading-relaxed">
-                          {selectedCaseDetails?.summary?.explanation_text || latestTurn?.explanation_text || "Patient is showing high distress emotion metrics. Text analysis predicts high sadness/anxiety indices, bypassing baseline parameters."}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-[#64748b]">Select a patient from the list to display details.</div>
-                  )}
-                </div>
+                {/* STAGED AI INSIGHT COMPONENT */}
+                <StagedAIInsight
+                  key={selectedCaseId || "none"}
+                  insightText={
+                    selectedCase?.priority_reason 
+                      ? `Triage Note: ${selectedCase.priority_reason}`
+                      : selectedCaseDetails?.summary?.explanation_text || "Patient demonstrates consistent biosignal stabilization post-session."
+                  }
+                  distressScore={selectedCase ? Math.round(selectedCase.latest_distress_score / 10) : undefined}
+                />
               </div>
             </div>
 
@@ -753,7 +690,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             {dailyBreakdown ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Today vs Yesterday Card */}
-                <div className="rounded-2xl p-5 border border-slate-200 bg-white shadow-xs">
+                <div className="rounded-3xl p-5 border border-emerald-100/40 bg-white shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out">
                   <h3 className="font-bold text-slate-900 text-sm mb-3 flex items-center justify-between">
                     <span>Today vs Yesterday Assessment</span>
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
@@ -803,7 +740,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 </div>
 
                 {/* Mental Status & Modality Details Card */}
-                <div className="rounded-2xl p-5 border border-slate-200 bg-white shadow-xs space-y-4">
+                <div className="rounded-3xl p-5 border border-emerald-100/40 bg-white shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out space-y-4">
                   <h3 className="font-bold text-slate-900 text-sm flex items-center justify-between">
                     <span>Contributing Modality Signals & Fusion</span>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -959,7 +896,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             ) : null}
 
             {/* CHART */}
-            <div className="rounded-2xl p-6 border border-[#e2e8f0]" style={{ background: "#ffffff" }}>
+            <div className="rounded-3xl p-6 border border-emerald-100/40 hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out" style={{ background: "#ffffff" }}>
               <div className="mb-4">
                 <h3 className="font-bold text-slate-900 text-sm">Well-being Score Trend Timeline</h3>
                 <p className="text-xs text-[#64748b] mt-0.5">Historical trend mapping patient's distress ratings across active turns</p>
