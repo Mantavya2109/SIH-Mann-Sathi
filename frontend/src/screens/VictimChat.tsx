@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import HomeTab from "../components/user/HomeTab";
-import MySupportTab from "../components/user/MySupportTab";
 import AppointmentsTab from "../components/user/AppointmentsTab";
 import CaseUpdatesTab from "../components/user/CaseUpdatesTab";
-import ResourcesTab from "../components/user/ResourcesTab";
+import DeviceTab from "../components/user/DeviceTab";
+import Aurora from "../components/interactive/Aurora";
+import VoiceRecorderModal from "../components/user/VoiceRecorderModal";
+import { LAST_PAGE_KEYS, useRememberedState } from "../lib/lastPage";
+import "./victim-theme.css";
 import BrandLogo from "../components/common/BrandLogo";
 import { GlassSidebar } from "../components/interactive/GlassSidebar";
 import { getApiBaseUrl } from "../utils/api";
@@ -19,47 +22,23 @@ type Message = {
   text: string;
 };
 
-const navItems = [
-  { icon: HomeIcon, label: "Home" },
-  { icon: ChatIcon, label: "Chat" },
-  { icon: PulseIcon, label: "Biosignal Device" },
-  { icon: SupportIcon, label: "My Support" },
-  { icon: CalendarIcon, label: "Appointments" },
-  { icon: FolderIcon, label: "Case Updates" },
-  { icon: BookIcon, label: "Resources" },
-];
+// Sidebar item id → screen shown. Insights opens the wellness overview screen (HomeTab).
+const SIDEBAR_TO_SCREEN: Record<string, string> = {
+  chat: "Chat",
+  appointments: "Appointments",
+  insights: "Home",
+  caseupdates: "Case Updates",
+  device: "Biosignal Device",
+};
 
-function renderNavItem(
-  item: (typeof navItems)[number],
-  activeTab: string,
-  setActiveTab: (tab: string) => void,
-  setSelectedExerciseId: (id: string | null) => void,
-  sidebarOpen: boolean,
-) {
-  const isActive = activeTab === item.label;
-  return (
-    <button
-      key={item.label}
-      onClick={() => {
-        setActiveTab(item.label);
-        if (item.label !== "Resources") {
-          setSelectedExerciseId(null);
-        }
-      }}
-      className={`group w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-left transition-all duration-200 ${
-        isActive
-          ? "bg-[#D8EADF] text-slate-900 font-semibold shadow-sm"
-          : "text-slate-600 hover:text-slate-900 hover:bg-emerald-50/60"
-      }`}
-      style={{ fontFamily: "Manrope, sans-serif" }}
-    >
-      <span className="group-hover:scale-110 transition-transform duration-200 flex-shrink-0">
-        <item.icon active={isActive} />
-      </span>
-      {sidebarOpen && <span className="text-sm">{item.label}</span>}
-    </button>
-  );
-}
+// Screen → sidebar item to highlight when a screen is opened from inside another screen.
+const SCREEN_TO_SIDEBAR: Record<string, string> = {
+  Chat: "chat",
+  Home: "insights",
+  Appointments: "appointments",
+  "Case Updates": "caseupdates",
+  "Biosignal Device": "device",
+};
 
 const initialMessages: Message[] = [
   { id: 1, role: "ai", text: "Hi. I'm here to check in with you today. You can take your time." },
@@ -67,42 +46,24 @@ const initialMessages: Message[] = [
 ];
 
 export default function VictimChat({ user, onLogout }: Props) {
-  // Default to Home on login
-  const [activeTab, setActiveTab] = useState<string>("Home");
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  // Which sidebar item is open — remembered, so a refresh returns to the same page.
+  // First visit is chat-first (Chat Companion).
+  const [navId, setNavId] = useRememberedState(LAST_PAGE_KEYS.victimTab, "chat", Object.keys(SIDEBAR_TO_SCREEN));
+  const [activeTab, setActiveTab] = useState<string>(() => SIDEBAR_TO_SCREEN[navId] || "Chat");
 
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
-  // Biosignal Prototype State
-  const [deviceConnected, setDeviceConnected] = useState(true);
-  const [bioData, setBioData] = useState<any>(null);
-  const [lastSyncText, setLastSyncText] = useState("Just now");
-
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  // Voice pop-up: the live mic stream (for the orb) and a "discard" flag for Cancel.
+  const [recStream, setRecStream] = useState<MediaStream | null>(null);
+  const discardRecordingRef = useRef(false);
   const initializedRef = useRef(false);
-
-  useEffect(() => {
-    async function loadUserBiosignals() {
-      try {
-        const baseUrl = getApiBaseUrl();
-        const res = await fetch(`${baseUrl}/api/biosignals/user/${user.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setBioData(data);
-        }
-      } catch (err) {
-        console.error("Failed to load biosignals:", err);
-      }
-    }
-    loadUserBiosignals();
-  }, [user.id]);
 
   useEffect(() => {
     if (activeTab === "Chat") {
@@ -290,10 +251,19 @@ export default function VictimChat({ user, onLogout }: Props) {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
         stream.getTracks().forEach((track) => track.stop());
+        setRecStream(null);
+        // Cancelled from the pop-up: drop the recording, send nothing.
+        if (discardRecordingRef.current) {
+          discardRecordingRef.current = false;
+          audioChunksRef.current = [];
+          return;
+        }
         await sendVoiceMessage(audioBlob);
       };
 
+      discardRecordingRef.current = false;
       mediaRecorder.start();
+      setRecStream(stream);
       setIsRecording(true);
     } catch (err) {
       console.error("Microphone access denied or recorder failed:", err);
@@ -315,6 +285,12 @@ export default function VictimChat({ user, onLogout }: Props) {
     }
   }
 
+  // Cancel from the voice pop-up: stop the mic without sending anything.
+  function cancelRecording() {
+    discardRecordingRef.current = true;
+    stopRecording();
+  }
+
   async function handleLogout() {
     if (sessionId) {
       try {
@@ -332,27 +308,26 @@ export default function VictimChat({ user, onLogout }: Props) {
     onLogout();
   }
 
+  // In-screen links ("View appointments", etc.) also move the sidebar highlight.
+  function goToScreen(screen: string) {
+    const target = SCREEN_TO_SIDEBAR[screen] ? screen : "Chat";
+    setActiveTab(target);
+    setNavId(SCREEN_TO_SIDEBAR[target]);
+  }
+
   const stage0Chips = ["I'm doing okay", "I'm worried", "I'm feeling overwhelmed", "I don't want to talk right now"];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-transparent">
+    <div className="ms-vic flex flex-col lg:flex-row h-screen overflow-hidden">
+      {/* Voice check-in pop-up (only while recording) */}
+      {isRecording && <VoiceRecorderModal stream={recStream} onSend={stopRecording} onCancel={cancelRecording} />}
+
       {/* FLOATING GLASS SIDEBAR */}
       <GlassSidebar
-        activeTab={activeTab.toLowerCase()}
+        activeTab={navId}
         onTabChange={(id) => {
-          const tabMap: Record<string, string> = {
-            home: "Home",
-            chat: "Chat",
-            wellness: "Home",
-            resources: "Resources",
-            appointments: "Appointments",
-            insights: "Home",
-            breathing: "Resources",
-            mood: "Home",
-            journal: "Home",
-            emergency: "Home"
-          };
-          setActiveTab(tabMap[id] || "Home");
+          setNavId(id);
+          setActiveTab(SIDEBAR_TO_SCREEN[id] || "Chat");
         }}
         user={user}
         onLogout={handleLogout}
@@ -360,329 +335,187 @@ export default function VictimChat({ user, onLogout }: Props) {
 
       {/* RENDER VIEWS */}
       {activeTab === "Home" ? (
+        // Wellness overview — opened from Insights
         <HomeTab
           user={user}
-          onNavigate={(tab) => setActiveTab(tab)}
-          onStartExercise={(exId) => {
-            setSelectedExerciseId(exId);
-            setActiveTab("Resources");
-          }}
-        />
-      ) : activeTab === "My Support" ? (
-        <MySupportTab
-          user={user}
-          onNavigate={(tab) => setActiveTab(tab)}
+          onNavigate={goToScreen}
+          // Resources (which hosted the exercise player) was removed — send people to Chat
+          onStartExercise={() => goToScreen("Chat")}
         />
       ) : activeTab === "Appointments" ? (
         <AppointmentsTab
           user={user}
-          onNavigate={(tab) => setActiveTab(tab)}
+          onNavigate={goToScreen}
         />
       ) : activeTab === "Case Updates" ? (
         <CaseUpdatesTab
           user={user}
-          onNavigate={(tab) => setActiveTab(tab)}
-        />
-      ) : activeTab === "Resources" ? (
-        <ResourcesTab
-          user={user}
-          initialExerciseId={selectedExerciseId}
+          onNavigate={goToScreen}
         />
       ) : activeTab === "Biosignal Device" ? (
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-[#E2EFE9]">
-          {/* Header */}
-          <div
-            className="flex items-center justify-between px-6 py-4"
-            style={{ background: "#ffffff", borderBottom: "1px solid #e2e8f0" }}
-          >
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="text-[#64748b] hover:text-[#0f172a] transition-colors"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-                </svg>
-              </button>
-              <div>
-                <h1 className="font-bold text-[#0f172a] text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Device</h1>
-                <p className="text-xs text-[#64748b]">Manage and connect your wellness companion device</p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setActiveTab("Chat")}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-[#0d9488] bg-[#f0fdfa] border border-[#99f6e4] hover:bg-teal-100 transition-all"
-            >
-              ← Back to Chat
-            </button>
-          </div>
-
-          <div className="p-6 md:p-12 max-w-lg mx-auto w-full flex-1 flex flex-col justify-center">
-            {/* Minimal Device Connection Card */}
-            <div className="bg-white rounded-3xl p-8 border border-emerald-100/40 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out text-center space-y-6">
-              <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center transition-all duration-200 hover:scale-110 ${
-                deviceConnected ? "bg-teal-50 text-teal-600 shadow-xs" : "bg-[#D8EADF] text-slate-400"
-              }`}>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-                </svg>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${deviceConnected ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
-                  <h2 className="text-xl font-bold text-slate-900" style={{ fontFamily: "Manrope, sans-serif" }}>
-                    {deviceConnected ? "Device Connected" : "Connect your device"}
-                  </h2>
-                </div>
-                <p className="text-sm text-slate-600 max-w-xs mx-auto">
-                  {deviceConnected
-                    ? "Your device is ready."
-                    : "Connect your biosignal device to begin."}
-                </p>
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => setDeviceConnected(!deviceConnected)}
-                  className={`w-full py-3.5 rounded-2xl text-sm font-bold transition-all shadow-xs ${
-                    deviceConnected
-                      ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      : "bg-[#18181B] text-white hover:bg-slate-800 active:scale-[0.98]"
-                  }`}
-                >
-                  {deviceConnected ? "Disconnect Device" : "Connect Device"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DeviceTab onNavigate={goToScreen} />
       ) : (
-        /* MAIN CHAT VIEW (REPLACES "AI CHECK-IN") */
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header without emergency button */}
-          <div
-            className="flex items-center justify-between px-6 py-4"
-            style={{ background: "#ffffff", borderBottom: "1px solid #e2e8f0" }}
-          >
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="text-[#64748b] hover:text-[#0f172a] transition-colors"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-                </svg>
-              </button>
-              <div
-                className="w-10 h-10 rounded-2xl flex items-center justify-center"
-                style={{ background: "#f0fdfa" }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="1.8" strokeLinecap="round">
-                  <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
-                </svg>
-              </div>
-              <div>
-                <h2 className="font-bold text-[#0f172a] text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Mann Sathi Companion</h2>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-xs text-[#64748b]">Private & secure</span>
-                </div>
-              </div>
-            </div>
+        /* MAIN CHAT VIEW — check-ins run through /api/conversation/respond */
+        <div className="relative flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
+          {/* Soft aurora glow behind the conversation */}
+          <div aria-hidden className="absolute inset-0 pointer-events-none">
+            <Aurora
+              className="!absolute inset-x-0 top-0 !h-[75%] opacity-60"
+              colorStops={["#10b981", "#5eead4", "#059669"]}
+              blend={0.6}
+              amplitude={0.9}
+              speed={0.8}
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#05070d]/30 to-[#05070d]" />
+          </div>
 
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200">
-                End-to-End Encrypted
+          {/* Header */}
+          <header className="relative z-10 shrink-0 flex items-center justify-between gap-3 px-4 sm:px-8 py-4 border-b border-white/[0.06] bg-[#05070d]/40 backdrop-blur-md">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="relative shrink-0">
+                <span className="w-11 h-11 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[#34d399]/25 to-[#0d9488]/25 border border-emerald-300/25 text-[#6ee7b7]">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20s-7-4.4-9.3-8.8A5 5 0 0112 5.6a5 5 0 019.3 5.6C19 15.6 12 20 12 20z" />
+                  </svg>
+                </span>
+                <span className="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-[#34d399] border-[3px] border-[#070a11]" />
               </span>
+              <div className="min-w-0">
+                <h2 className="text-[16px] font-bold text-white tracking-[-0.01em] truncate">Mann Saathi Companion</h2>
+                <p className="text-[12px] text-[#9aa5b5] truncate">Here to listen, whenever you're ready</p>
+              </div>
             </div>
-          </div>
-
-          {/* Privacy banner */}
-          <div
-            className="px-6 py-2.5 text-xs flex items-center gap-2"
-            style={{ background: "#eff6ff", borderBottom: "1px solid #dbeafe", color: "#1e40af" }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            Your conversations are handled securely and used to help provide appropriate support.
-          </div>
+            <span className="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-white/10 bg-white/[0.04] text-[12px] font-medium text-[#c9d2de]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 018 0v4" />
+              </svg>
+              End-to-end encrypted
+            </span>
+          </header>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                {msg.role === "ai" && (
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mr-3 mt-0.5"
-                    style={{ background: "#f0fdfa", border: "1.5px solid #99f6e4" }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round">
-                      <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
-                    </svg>
+          <div className="relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-none">
+            <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-6 pb-4">
+              <div className="flex justify-center mb-6">
+                <span className="px-3 py-1 rounded-full bg-white/[0.05] border border-white/[0.07] text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9aa5b5]">
+                  Today
+                </span>
+              </div>
+
+              <div className="space-y-2.5">
+                {messages.map((msg, i) => {
+                  const isUser = msg.role === "user";
+                  const firstOfGroup = i === 0 || messages[i - 1].role !== msg.role;
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`vic-msg flex items-end gap-2.5 ${isUser ? "justify-end" : "justify-start"} ${firstOfGroup && i > 0 ? "pt-3" : ""}`}
+                    >
+                      {!isUser && (
+                        <span className={`shrink-0 w-8 h-8 ${firstOfGroup ? "" : "invisible"}`}>
+                          <span className="vic-avatar w-8 h-8 rounded-full flex items-center justify-center">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 20s-7-4.4-9.3-8.8A5 5 0 0112 5.6a5 5 0 019.3 5.6C19 15.6 12 20 12 20z" />
+                            </svg>
+                          </span>
+                        </span>
+                      )}
+                      <div
+                        className={`${isUser ? "vic-bubble-user rounded-[20px] rounded-br-md" : "vic-bubble-ai rounded-[20px] rounded-bl-md"} max-w-[82%] sm:max-w-[70%] px-4 py-2.5 text-[14.5px] leading-relaxed break-words`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {loading && (
+                  <div className="vic-msg flex items-end gap-2.5 pt-3">
+                    <span className="vic-avatar shrink-0 w-8 h-8 rounded-full flex items-center justify-center">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20s-7-4.4-9.3-8.8A5 5 0 0112 5.6a5 5 0 019.3 5.6C19 15.6 12 20 12 20z" />
+                      </svg>
+                    </span>
+                    <div className="vic-bubble-ai rounded-[20px] rounded-bl-md px-4 py-3.5" aria-label="Companion is typing">
+                      <div className="flex items-center gap-1.5">
+                        <span className="vic-dot" />
+                        <span className="vic-dot" style={{ animationDelay: "160ms" }} />
+                        <span className="vic-dot" style={{ animationDelay: "320ms" }} />
+                      </div>
+                    </div>
                   </div>
                 )}
-                <div
-                  className="max-w-sm md:max-w-md px-4 py-3 rounded-2xl text-sm leading-relaxed"
-                  style={{
-                    background: msg.role === "user" ? "#1e3a8a" : "#ffffff",
-                    color: msg.role === "user" ? "#ffffff" : "#0f172a",
-                    border: msg.role === "user" ? "none" : "1px solid #e2e8f0",
-                    borderTopRightRadius: msg.role === "user" ? 4 : 16,
-                    borderTopLeftRadius: msg.role === "user" ? 16 : 4,
-                  }}
-                >
-                  {msg.text}
-                </div>
               </div>
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mr-3 mt-0.5"
-                  style={{ background: "#f0fdfa", border: "1.5px solid #99f6e4" }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d9488" strokeWidth="2" strokeLinecap="round">
-                    <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
-                  </svg>
-                </div>
-                <div
-                  className="px-4 py-3 rounded-2xl text-sm"
-                  style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderTopLeftRadius: 4 }}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-[#0d9488] animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <div className="w-2 h-2 rounded-full bg-[#0d9488] animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <div className="w-2 h-2 rounded-full bg-[#0d9488] animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef} />
+              <div ref={bottomRef} />
+            </div>
           </div>
 
-          {/* Quick reply chips */}
-          <div className="px-6 py-2 flex items-center gap-2 overflow-x-auto" style={{ background: "#ffffff", borderTop: "1px solid #f1f5f9" }}>
-            {stage0Chips.map((chip) => (
-              <button
-                key={chip}
-                onClick={() => sendMessage(chip)}
-                disabled={loading || isRecording}
-                className="px-3 py-1.5 rounded-full text-xs font-medium transition-all flex-shrink-0 hover:bg-[#f0fdfa] hover:text-[#0d9488] disabled:opacity-50"
-                style={{
-                  background: "#f8fafc",
-                  color: "#475569",
-                  border: "1px solid #e2e8f0",
-                  fontFamily: "Manrope, sans-serif",
-                }}
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
-
-          {/* Input Bar */}
+          {/* Composer */}
           <div
-            className="px-6 py-4"
-            style={{ background: "#ffffff", borderTop: "1px solid #e2e8f0" }}
+            className="relative z-10 shrink-0 px-4 sm:px-8 pt-2"
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
           >
-            <div
-              className="flex items-center gap-3 px-4 py-1.5 rounded-2xl transition-all"
-              style={{
-                background: "#f8fafc",
-                border: "1.5px solid #e2e8f0",
-              }}
-            >
-              <input
-                type="text"
-                value={input}
-                disabled={loading || isRecording}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && input.trim() && sendMessage(input.trim())}
-                placeholder={isRecording ? "Listening..." : loading ? "Thinking..." : "Type your message…"}
-                className="flex-1 py-3.5 text-sm outline-none bg-transparent text-[#0f172a] placeholder:text-[#94a3b8]"
-                style={{ fontFamily: "Inter, sans-serif" }}
-              />
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={loading}
-                className={`p-1 transition-all active:scale-95 ${
-                  isRecording ? "text-[#dc2626] animate-pulse" : "text-[#94a3b8] hover:text-[#0d9488]"
-                }`}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
-                  <line x1="8" y1="23" x2="16" y2="23"/>
+            <div className="max-w-3xl mx-auto">
+              {/* Quick replies */}
+              <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-3">
+                {stage0Chips.map((chip) => (
+                  <button
+                    key={chip}
+                    onClick={() => sendMessage(chip)}
+                    disabled={loading || isRecording}
+                    className="vic-chip shrink-0 h-8 px-3.5 rounded-full text-[12.5px] font-medium transition-colors disabled:opacity-50"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              <div className="vic-input flex items-center gap-2 pl-5 pr-2 py-2 rounded-[22px]">
+                <input
+                  type="text"
+                  value={input}
+                  disabled={loading || isRecording}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && input.trim() && sendMessage(input.trim())}
+                  placeholder={isRecording ? "Listening… tap the mic to stop" : loading ? "Thinking…" : "Share what's on your mind…"}
+                  aria-label="Message"
+                  className="flex-1 min-w-0 py-2.5 text-[15px] outline-none bg-transparent text-[#eef2f7] placeholder:text-[#737e90]"
+                />
+                <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  disabled={loading}
+                  aria-label={isRecording ? "Stop recording" : "Record a voice message"}
+                  className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
+                    isRecording ? "bg-red-500/15 text-[#f87171] animate-pulse" : "text-[#9aa5b5] hover:text-[#6ee7b7] hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="2" width="6" height="12" rx="3" />
+                    <path d="M19 10v1a7 7 0 01-14 0v-1M12 18v4M8 22h8" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => input.trim() && sendMessage(input.trim())}
+                  disabled={loading || isRecording || !input.trim()}
+                  aria-label="Send message"
+                  className="vic-send shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+              </div>
+
+              <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[11.5px] text-[#737e90] text-center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                 </svg>
-              </button>
-              <button
-                onClick={() => input.trim() && sendMessage(input.trim())}
-                disabled={loading || isRecording || !input.trim()}
-                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-[0.96] disabled:opacity-50 bg-[#18181B] hover:bg-slate-800"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round">
-                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
-              </button>
+                Private &amp; secure — used only to support your care.
+              </p>
             </div>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-// Icon components
-function HomeIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-    </svg>
-  );
-}
-function ChatIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-    </svg>
-  );
-}
-function SupportIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402C1 3.534 4.068 2 6.999 2 9.03 2 10.999 3 12 5c1.001-2 2.87-3 5.001-3 2.93 0 5.999 1.534 5.999 5.191 0 4.105-5.37 8.863-11 14.402z"/>
-    </svg>
-  );
-}
-function CalendarIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-    </svg>
-  );
-}
-function FolderIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-    </svg>
-  );
-}
-function BookIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-    </svg>
-  );
-}
-function PulseIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#334155" : "currentColor"} strokeWidth="1.8" strokeLinecap="round">
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-    </svg>
   );
 }

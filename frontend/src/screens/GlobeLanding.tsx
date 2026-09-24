@@ -233,11 +233,11 @@ function ScrollLanding({ onSelectPortal }: GlobeLandingProps) {
           <motion.div
             aria-hidden
             style={{ opacity: statsHeaderOpacity }}
-            className="absolute z-10 top-6 md:top-8 inset-x-0 px-4 text-center pointer-events-none"
+            className="ms-stats-head absolute z-10 top-[76px] md:top-8 inset-x-0 px-4 text-center pointer-events-none"
           >
             <p className="text-[11px] md:text-xs font-bold uppercase tracking-[0.26em] text-[#6ee7b7]">The scale of what we face</p>
             <p
-              className="mt-2 text-[24px] md:text-[32px] leading-tight font-bold tracking-[-0.02em] text-white"
+              className="mt-2 text-[22px] md:text-[32px] leading-tight font-bold tracking-[-0.02em] text-white"
               style={{ fontFamily: '"Plus Jakarta Sans", Inter, sans-serif' }}
             >
               Behind every number is a person.
@@ -252,17 +252,17 @@ function ScrollLanding({ onSelectPortal }: GlobeLandingProps) {
           </motion.p>
           <div className="absolute z-10 inset-0 pointer-events-none">
             {/* Desktop: two cards either side of the globe. Phone: 2×2 grid at the bottom. */}
-            <div className="hidden md:flex absolute left-[3vw] top-1/2 -translate-y-1/2 flex-col gap-4">
+            <div className="ms-stats-side hidden md:flex absolute left-[3vw] top-1/2 -translate-y-1/2 flex-col gap-4">
               {STAT_CARDS.slice(0, 2).map((c, i) => (
                 <StatCardView key={c.label} card={c} progress={scrollYProgress} delay={i * 0.035} />
               ))}
             </div>
-            <div className="hidden md:flex absolute right-[3vw] top-1/2 -translate-y-1/2 flex-col gap-4">
+            <div className="ms-stats-side hidden md:flex absolute right-[3vw] top-1/2 -translate-y-1/2 flex-col gap-4">
               {STAT_CARDS.slice(2).map((c, i) => (
                 <StatCardView key={c.label} card={c} progress={scrollYProgress} delay={(i + 2) * 0.035} />
               ))}
             </div>
-            <div className="md:hidden absolute inset-x-3 bottom-10 grid grid-cols-2 gap-2">
+            <div className="md:hidden absolute inset-x-3 bottom-10 grid grid-cols-2 gap-2 [@media(max-height:600px)]:hidden">
               {STAT_CARDS.map((c, i) => (
                 <StatCardView key={c.label} card={c} progress={scrollYProgress} delay={i * 0.025} compact />
               ))}
@@ -278,7 +278,7 @@ function ScrollLanding({ onSelectPortal }: GlobeLandingProps) {
 
           {/* ---------- Top-right navbar (placeholder widgets) ---------- */}
           <nav aria-label="Primary" className="absolute top-0 inset-x-0 z-30 flex justify-end items-center gap-2 md:gap-3 px-4 md:px-10 py-5">
-            <motion.div style={{ opacity: titleOpacity }}>
+            <motion.div style={{ opacity: titleOpacity }} className="ms-land-links">
               <TopNav />
             </motion.div>
             {/* Always-available shortcut: nobody has to scroll the whole story to log in */}
@@ -295,12 +295,12 @@ function ScrollLanding({ onSelectPortal }: GlobeLandingProps) {
           {/* ---------- Title (right side, in the stars) ---------- */}
           <motion.div
             style={{ opacity: titleOpacity, y: titleY, textShadow: "0 2px 30px rgba(0,0,0,0.85)" }}
-            className="absolute z-10 inset-x-0 top-[14%] px-6 text-center md:text-left md:inset-x-auto md:top-1/2 md:-translate-y-1/2 md:right-[7vw] md:max-w-[560px] md:px-0"
+            className="ms-land-title absolute z-10 inset-x-0 top-[14%] [@media(max-height:500px)]:top-[18%] px-6 text-center md:text-left md:inset-x-auto md:top-1/2 md:-translate-y-1/2 md:right-[7vw] md:max-w-[560px] md:px-0"
           >
             {/* "Mann Saathi" typed out in every Indian language, one after another */}
             <TypedBrandLine />
             <h1
-              className="text-[56px] md:text-[clamp(56px,6.2vw,96px)] leading-[0.95] tracking-[-0.045em] font-extrabold text-white"
+              className="text-[clamp(44px,14vw,56px)] md:text-[clamp(56px,6.2vw,96px)] leading-[0.95] tracking-[-0.045em] font-extrabold text-white"
               style={{ fontFamily: '"Plus Jakarta Sans", Inter, sans-serif' }}
             >
               Mann{" "}
@@ -402,7 +402,7 @@ function StatCardView({
     <motion.div
       style={{ opacity, y }}
       className={`rounded-2xl border border-white/10 bg-black/45 backdrop-blur-md shadow-xl shadow-black/40 ${
-        compact ? "p-3" : "w-[clamp(220px,21vw,300px)] p-5"
+        compact ? "p-3" : "ms-stat-card w-[clamp(220px,21vw,300px)] p-5"
       }`}
     >
       <div className="flex items-start gap-3">
@@ -423,7 +423,7 @@ function StatCardView({
             {card.suffix && <span className={compact ? "text-[13px]" : "text-[18px]"}>{card.suffix}</span>}
           </p>
           <p className={`mt-1.5 text-slate-300 leading-snug ${compact ? "text-[11px]" : "text-[13px]"}`}>{card.label}</p>
-          {!compact && <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">{card.source}</p>}
+          {!compact && <p className="ms-stat-source mt-2 text-[10px] uppercase tracking-[0.14em] text-slate-500">{card.source}</p>}
         </div>
       </div>
     </motion.div>
@@ -590,7 +590,7 @@ function StaticLanding({ onSelectPortal }: GlobeLandingProps) {
 
 function PortalCard({ onSelectPortal }: GlobeLandingProps) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-950/55 backdrop-blur-xl shadow-2xl shadow-black/50 p-7 md:p-8">
+    <div className="rounded-3xl border border-white/10 bg-slate-950/55 backdrop-blur-xl shadow-2xl shadow-black/50 p-5 sm:p-7 md:p-8 [@media(max-height:560px)]:p-4">
       <div className="space-y-1.5">
         <span className="inline-block px-3 py-1 rounded-md bg-emerald-400/10 text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
           Direct portal access
@@ -601,7 +601,7 @@ function PortalCard({ onSelectPortal }: GlobeLandingProps) {
         <p className="text-sm text-slate-400">Choose your portal to continue.</p>
       </div>
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-6 [@media(max-height:560px)]:mt-3 space-y-3 [@media(max-height:560px)]:space-y-2">
         <PortalButton
           title="Complainant Portal"
           badge="Survivor entry"
@@ -628,7 +628,7 @@ function PortalCard({ onSelectPortal }: GlobeLandingProps) {
         />
       </div>
 
-      <div className="mt-6 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-slate-500">
+      <div className="mt-6 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-slate-500 [@media(max-height:560px)]:hidden">
         <svg className="w-4 h-4 shrink-0 text-emerald-400/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
         </svg>
@@ -661,7 +661,7 @@ function PortalButton({
     <button
       type="button"
       onClick={onClick}
-      className="group w-full text-left flex items-center gap-4 p-4 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 transition-colors"
+      className="group w-full text-left flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4 [@media(max-height:560px)]:py-2.5 rounded-2xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 transition-colors"
     >
       <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-colors ${tint}`}>
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -673,7 +673,7 @@ function PortalButton({
           <span className="text-[15px] font-semibold text-white">{title}</span>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{badge}</span>
         </span>
-        <span className="block mt-0.5 text-xs text-slate-400 leading-relaxed">{description}</span>
+        <span className="block mt-0.5 text-xs text-slate-400 leading-relaxed [@media(max-height:560px)]:hidden">{description}</span>
       </span>
       <svg
         className="w-5 h-5 shrink-0 text-slate-500 group-hover:text-white group-hover:translate-x-0.5 transition"

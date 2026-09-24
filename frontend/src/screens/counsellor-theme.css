@@ -264,3 +264,22 @@
 .ms-dash .font-black { font-weight: 800; }
 /* Uppercase micro-labels read cleaner slightly heavier */
 .ms-dash .uppercase { font-weight: 700; }
+
+/* ---------- Phones & small tablets ---------- */
+@media (max-width: 767px) {
+  /* Wide data tables scroll sideways inside their card instead of squashing */
+  .ms-dash :where(div):has(> table) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ms-dash table { width: max-content; min-width: 100%; overflow-wrap: normal; }
+  .ms-dash table th, .ms-dash table td { white-space: nowrap; }
+
+  /* Case pickers never push past the screen edge */
+  .ms-dash select { max-width: 100%; min-width: 0; flex: 1 1 180px; text-overflow: ellipsis; }
+
+  /* Slightly tighter card padding so content gets the width */
+  .ms-dash main .p-6 { padding: 1.125rem; }
+  .ms-dash main .p-8 { padding: 1.25rem; }
+  .ms-dash main .rounded-3xl { border-radius: 1.25rem; }
+
+  /* Long words (emails, refs) wrap instead of overflowing */
+  .ms-dash main { overflow-wrap: break-word; }
+}

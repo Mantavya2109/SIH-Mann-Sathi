@@ -13,7 +13,10 @@ import { StagedAIInsight } from "../components/interactive/StagedAIInsight";
 import { animate, motion } from "framer-motion";
 import "./counsellor-theme.css";
 import GhostFibers from "../components/interactive/GhostFibers";
+import { LAST_PAGE_KEYS, useRememberedState } from "../lib/lastPage";
 import { getApiBaseUrl } from "../utils/api";
+
+const COUNSELLOR_TABS = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Location", "Settings"];
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -50,7 +53,8 @@ interface Alert {
 }
 
 export default function CounsellorDashboard({ user, onLogout }: Props) {
-  const [activeNav, setActiveNav] = useState("Dashboard");
+  // Remembered, so a refresh returns to the same tab.
+  const [activeNav, setActiveNav] = useRememberedState(LAST_PAGE_KEYS.counsellorTab, "Dashboard", COUNSELLOR_TABS);
   const [cases, setCases] = useState<PrioritizedCase[]>([]);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedCaseDetails, setSelectedCaseDetails] = useState<any>(null);
@@ -77,7 +81,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  const navItems = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Location", "Settings"];
+  const navItems = COUNSELLOR_TABS;
 
   const getApiUrl = (path: string) => {
     const baseUrl = getApiBaseUrl();
@@ -611,7 +615,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
       {/* TOP HEADER */}
       <header
-        className="flex items-center justify-between px-6 py-3.5"
+        className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 px-4 sm:px-6 pt-3 pb-2.5 lg:py-3.5"
         style={{
           background: "rgba(5, 7, 13, 0.72)",
           backdropFilter: "blur(16px)",
@@ -622,15 +626,15 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
           zIndex: 40,
         }}
       >
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-8 min-w-0">
           {/* Wordmark — same typography as the landing page */}
           <div className="leading-none select-none">
-            <div className="text-[22px] font-extrabold text-white tracking-[-0.02em]">
+            <div className="text-[20px] sm:text-[22px] font-extrabold text-white tracking-[-0.02em]">
               Mann <span className="bg-gradient-to-r from-[#d1fae5] via-[#6ee7b7] to-[#10b981] bg-clip-text text-transparent">Saathi</span>
             </div>
             <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.26em] text-[#6ee7b7]/80">Counsellor Portal</div>
           </div>
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => (
               <button
                 key={item}
@@ -659,7 +663,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="hidden lg:flex items-center gap-2 h-9 px-3.5 rounded-full border border-white/10 bg-white/[0.04] text-[12px] text-[#c9d2de]">
+          <div className="hidden 2xl:flex items-center gap-2 h-9 px-3.5 rounded-full border border-white/10 bg-white/[0.04] text-[12px] text-[#c9d2de]">
             <span className="relative flex w-2 h-2">
               <span className="absolute inset-0 rounded-full bg-emerald-400/70 animate-ping" />
               <span className="relative w-2 h-2 rounded-full bg-emerald-400" />
@@ -668,23 +672,58 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
           </div>
           <button
             onClick={onLogout}
-            className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium transition-colors text-[#fca5a5] border border-red-400/20 bg-red-500/[0.06] hover:bg-red-500/15 hover:text-white"
+            aria-label={`Log out ${user.name}`}
+            className="flex items-center gap-2 h-9 px-3.5 sm:px-4 rounded-full text-[13px] font-medium transition-colors text-[#fca5a5] border border-red-400/20 bg-red-500/[0.06] hover:bg-red-500/15 hover:text-white whitespace-nowrap"
             style={{ fontFamily: "Inter, sans-serif" }}
           >
-            Logout ({user.name})
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+            <span>Logout</span>
+            <span className="hidden xl:inline">({user.name})</span>
           </button>
         </div>
+
+        {/* Phone / tablet: the same tabs as a swipeable strip under the wordmark */}
+        <nav aria-label="Dashboard sections" className="lg:hidden basis-full -mx-4 sm:-mx-6 px-4 sm:px-6 flex items-center gap-1 overflow-x-auto scrollbar-none">
+          {navItems.map((item) => (
+            <button
+              key={item}
+              ref={(el) => {
+                if (el && activeNav === item) el.scrollIntoView({ block: "nearest", inline: "center" });
+              }}
+              onClick={() => setActiveNav(item)}
+              className={`relative shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors ${
+                activeNav === item ? "text-white" : "text-[#9aa5b5] hover:text-white"
+              }`}
+            >
+              {activeNav === item && (
+                <motion.span
+                  layoutId="ms-nav-pill-mobile"
+                  className="absolute inset-0 rounded-full border border-emerald-300/30 bg-emerald-400/10"
+                  transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                />
+              )}
+              <span className="relative">{item}</span>
+              {item === "Alerts" && activeAlerts.length > 0 && (
+                <span className="relative ml-1.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                  {activeAlerts.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
       </header>
 
       {/* MAIN CONTAINER */}
-      <main key={activeNav} className="relative z-10 flex-1 px-4 sm:px-6 py-8 max-w-7xl mx-auto w-full space-y-6">
+      <main key={activeNav} className="relative z-10 flex-1 px-3.5 sm:px-6 py-5 sm:py-8 max-w-7xl mx-auto w-full space-y-6">
         {/* WELCOME — Dashboard tab only */}
         {activeNav === "Dashboard" && (
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.26em] text-[#6ee7b7]">
               Case overview · {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" })}
             </p>
-            <h1 className="mt-2 text-[34px] sm:text-[42px] font-extrabold leading-[1.08] tracking-[-0.025em] text-white">
+            <h1 className="mt-2 text-[30px] sm:text-[42px] font-extrabold leading-[1.08] tracking-[-0.025em] text-white">
               Welcome, <span className="bg-gradient-to-r from-[#d1fae5] via-[#6ee7b7] to-[#34d399] bg-clip-text text-transparent">{user.name}</span>
             </h1>
             <p className="text-sm text-[#64748b] mt-2">Counsellor / Case Officer — authorised access only</p>
@@ -702,7 +741,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         {activeNav === "Dashboard" && (
           <>
             {/* KPI STATS CARDS */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { label: "Assigned Cases", value: activeCasesCount, accent: "#86efac", icon: "users" as const },
                 { label: "High / Severe Risk", value: highRiskCount, accent: "#f87171", icon: "siren" as const },
@@ -723,7 +762,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                     </h3>
                     <p className="text-xs text-[#64748b]">Conversational signals · fusion score · physiological signals</p>
                   </div>
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto min-w-0">
                     <select
                       value={selectedCaseId || ""}
                       onChange={(e) => setSelectedCaseId(e.target.value)}
@@ -749,7 +788,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* CASES LIST PANE */}
               <div className="lg:col-span-2 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="font-bold text-[#0f172a] text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Priority Triage List</h2>
                   <div className="flex items-center gap-2">
                     <div className="flex bg-[#f1f5f9] p-0.5 rounded-lg border border-[#e2e8f0]">
@@ -1721,7 +1760,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             {/* Header & Case Selector */}
             <div className="rounded-2xl p-6 border border-[#e2e8f0] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <h2 className="font-bold text-slate-900 text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Telemetry</h2>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-700 border border-purple-200">
                     Prototype / Demo Integration
@@ -1731,7 +1770,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               </div>
 
               {/* Case / Patient Selector */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <span className="text-xs text-slate-500 font-semibold">Select Case:</span>
                 <select
                   value={selectedCaseId || ""}
@@ -2096,7 +2135,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               </div>
 
               {/* Case Selection Dropdown */}
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 min-w-0">
                 <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Select Case:</label>
                 <select
                   value={selectedCaseId || ""}

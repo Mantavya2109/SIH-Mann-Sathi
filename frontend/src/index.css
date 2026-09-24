@@ -60,3 +60,31 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ---------- Mobile helpers ---------- */
+/* Hide scrollbars on swipeable strips while keeping them scrollable */
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+/* Full-height screens use the *visible* viewport on phones (URL bar aware) */
+.h-screen { height: 100vh; height: 100dvh; }
+.min-h-screen { min-height: 100vh; min-height: 100dvh; }
+/* Stop iOS from zooming into form fields (it zooms when text < 16px) */
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* Landing on short landscape screens (phones turned sideways) */
+@media (max-height: 500px) and (min-width: 768px) {
+  .ms-land-links { display: none; }
+  .ms-land-title { top: 42% !important; max-width: 46vw !important; }
+  .ms-land-title h1 { font-size: 48px !important; }
+  .ms-land-title > p:first-child { margin-bottom: 0.25rem; }
+  .ms-land-title > div { margin-top: 0.9rem !important; }
+  .ms-land-title > p { margin-top: 0.6rem; }
+  .ms-land-title > p + p { margin-top: 0.15rem; font-size: 22px !important; }
+  .ms-stats-head { display: none; }
+  .ms-stats-side { top: 68px !important; --tw-translate-y: 0px !important; gap: 0.6rem !important; }
+  .ms-stat-card { padding: 0.8rem 0.95rem !important; width: clamp(200px, 24vw, 260px) !important; }
+  .ms-stat-card .ms-stat-source { display: none; }
+  .ms-stat-card [class*="text-[30px]"] { font-size: 24px; }
+}
