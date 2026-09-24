@@ -33,6 +33,7 @@ live_emotion_test_temp.wav
 stt_live_test_temp.wav
 temp_mic_test.wav
 temp_test_audio.wav
+secrets.h
 
 # Configuration & Secrets
 .env
