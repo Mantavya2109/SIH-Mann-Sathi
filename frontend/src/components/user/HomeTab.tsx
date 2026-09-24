@@ -129,8 +129,8 @@ export default function HomeTab({ user, onNavigate, onStartExercise }: Props) {
   }).format(new Date());
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-transparent">
-      <div className="p-5 md:p-8 max-w-5xl mx-auto w-full space-y-5">
+    <div className="flex-1 min-h-0 flex flex-col min-w-0 overflow-y-auto bg-transparent">
+      <div className="p-4 sm:p-5 md:p-8 max-w-5xl mx-auto w-full space-y-5">
         {/* 1. WELCOME HEADER WITH DATE CONTEXT */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 pb-1">
           <div className="space-y-1">
