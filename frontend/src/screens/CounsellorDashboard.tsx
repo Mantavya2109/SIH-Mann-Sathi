@@ -9,8 +9,10 @@ import {
   Area,
   AreaChart,
 } from "recharts";
-import BrandLogo from "../components/common/BrandLogo";
 import { StagedAIInsight } from "../components/interactive/StagedAIInsight";
+import { animate, motion } from "framer-motion";
+import "./counsellor-theme.css";
+import GhostFibers from "../components/interactive/GhostFibers";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -185,11 +187,11 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     }
   }, [selectedCaseId, caseDetailsRefreshKey]);
 
-  // Auto-poll wearable analysis while the Biosignal Analysis tab is open, so the
+  // Auto-poll wearable analysis while the Biosignal Analysis or Dashboard tab is open, so the
   // Heart Rate / SpO2 tiles pick up each new ThingSpeak reading (e.g. a finger
   // placed back on the sensor) on their own, without a manual "Simulate Sync" click.
   useEffect(() => {
-    if (!selectedCaseId || activeNav !== "Biosignal Analysis") return;
+    if (!selectedCaseId || (activeNav !== "Biosignal Analysis" && activeNav !== "Dashboard")) return;
     const pollInterval = setInterval(() => {
       fetchWearableAnalysis(selectedCaseId);
     }, 15000); // matches the ESP32's ~15s ThingSpeak upload cadence
@@ -471,31 +473,182 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
   const dailyBreakdown = getDailyBreakdown();
 
+  // The four physiological tiles (Heart Rate & SpO2 live from the wearable,
+  // Sleep & Skin Conductance demo). Used in the Dashboard's three-column layout
+  // and, on their own, in the Biosignal Analysis tab.
+  const physioTiles = (
+    <>
+    {/* Heart Rate — live wearable (GET /api/wearable/analysis/{case_id}) */}
+    <SignalTile
+      label="Heart Rate"
+      value={liveHeartRate != null ? `${Math.round(liveHeartRate)} BPM` : "—"}
+      status={liveHeartRate != null ? heartRateStatusLabel : null}
+      statusClass="text-slate-600"
+      sub={liveHeartRate != null ? undefined : isRohanCase2 ? "No live reading yet" : "No device data"}
+      badge={liveHeartRate != null ? "live" : undefined}
+      muted={liveHeartRate == null}
+    />
+    {/* Blood Oxygen — live wearable (same endpoint) */}
+    <SignalTile
+      label="Blood Oxygen"
+      value={liveSpo2 != null ? `${Math.round(liveSpo2)}% SpO2` : "—"}
+      status={liveSpo2 != null ? spo2StatusLabel : null}
+      statusClass="text-teal-700"
+      sub={liveSpo2 != null ? undefined : isRohanCase2 ? "No live reading yet" : "No device data"}
+      badge={liveSpo2 != null ? "live" : undefined}
+      muted={liveSpo2 == null}
+    />
+    {/* Sleep — demo/prototype data, Rohan Case 2 only */}
+    <SignalTile
+      label="Sleep"
+      value={isRohanCase2 ? (bioData?.sleep?.duration_formatted || "6h 42m") : "—"}
+      status={isRohanCase2 ? (holisticData?.signals?.sleep_quality || "Moderate") : null}
+      statusClass="text-purple-700"
+      sub={isRohanCase2 ? undefined : "No device data"}
+      badge={isRohanCase2 ? "demo" : undefined}
+      muted={!isRohanCase2}
+    />
+    {/* Skin Conductance — demo/prototype data, Rohan Case 2 only */}
+    <SignalTile
+      label="Skin Conductance"
+      value={isRohanCase2 ? `${bioData?.skin_conductance?.average_us || 2.8} µS` : "—"}
+      status={isRohanCase2 ? (holisticData?.signals?.skin_conductance_status || "Elevated") : null}
+      statusClass="text-orange-600"
+      sub={isRohanCase2 ? undefined : "No device data"}
+      badge={isRohanCase2 ? "demo" : undefined}
+      muted={!isRohanCase2}
+    />
+    </>
+  );
+
+  // Three-column signal layout, shown on the Dashboard (selected case) and in Biosignal Analysis:
+  // left = conversational signals · centre = fusion score (focal point) · right = physiological.
+  // On narrow screens it stacks centre → left → right so the fusion score is never buried.
+  const caseSignalsGrid = (
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-4 items-stretch">
+      {/* LEFT — conversational signals */}
+      <div className="order-2 lg:order-1 flex flex-col gap-3">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 px-1">Conversational signals</div>
+        <SignalTile label="Text Analysis" value={holisticData?.signals?.text_score || "40%"} sub="Linguistic" />
+        <SignalTile label="Voice Analysis" value={holisticData?.signals?.voice_score || "59%"} sub="Acoustic" />
+        <div className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-xl">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Recent check-in</div>
+            {latestTurn?.timestamp && (
+              <div className="text-[10px] text-slate-400">{formatRelativeTimeIST(latestTurn.timestamp)}</div>
+            )}
+          </div>
+          {latestTurn?.transcript ? (
+            <>
+              <p className="mt-2 text-xs text-slate-700 leading-relaxed italic line-clamp-4">"{latestTurn.transcript}"</p>
+              <div className="mt-2 flex items-center gap-2 text-[10px] font-semibold">
+                <span className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                  {latestTurn.internal_analysis?.voice_emotions != null ? "Voice" : "Text"} check-in
+                </span>
+                {latestTurn.distress_score != null && (
+                  <span className="text-slate-500">Distress {Math.round(Number(latestTurn.distress_score) * 100)}%</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-xs text-slate-400 italic">No check-ins recorded for this case yet.</p>
+          )}
+        </div>
+      </div>
+
+      {/* CENTRE — fusion score, the visual anchor */}
+      <div className="order-1 lg:order-2">
+        <FusionScorePanel
+          score={holisticData?.signals?.fusion_score || "52%"}
+          tier={holisticData?.signals?.risk_tier || "MODERATE"}
+          trend={holisticData?.trend || "Improving"}
+        />
+      </div>
+
+      {/* RIGHT — physiological / wearable signals */}
+      <div className="order-3 flex flex-col gap-3">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 px-1">Physiological signals</div>
+        {physioTiles}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col bg-transparent" style={{ fontFamily: "Inter, sans-serif" }}>
+    <div className="ms-dash min-h-screen flex flex-col relative" style={{ fontFamily: "Inter, sans-serif" }}>
+      {/* Animated GhostFibers background (fixed behind everything) */}
+      <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden>
+        <GhostFibers
+          lineColor="#0A2A1F"
+          glowColor="#1E8A5E"
+          speed={0.2}
+          scale={2}
+          rotation={0}
+          rotationSpeed={0.25}
+          layers={4}
+          waveAmplitude={0.015}
+          waveFrequency={3}
+          waveSpeed={0.15}
+          layerSpeed={0.08}
+          twist={0.1}
+          twistFrequency={5}
+          twistSpeed={1.2}
+          lineFrequency={5}
+          lineSpacing={2}
+          lineSharpness={16}
+          glowFalloff={10}
+          glowIntensity={1.6}
+          brightness={2}
+          blueBoost={1}
+          vignette={0.8}
+          grain={0.05}
+          dpr={1}
+          lightMode={false}
+          fps={60}
+          paused={false}
+        />
+      </div>
 
       {/* TOP HEADER */}
       <header
-        className="flex items-center justify-between px-6 py-4 shadow-sm"
-        style={{ background: "#ffffff", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, zIndex: 40 }}
+        className="flex items-center justify-between px-6 py-3.5"
+        style={{
+          background: "rgba(5, 7, 13, 0.72)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          position: "sticky",
+          top: 0,
+          zIndex: 40,
+        }}
       >
         <div className="flex items-center gap-8">
-          <BrandLogo subtitle="Counsellor Portal" />
+          {/* Wordmark — same typography as the landing page */}
+          <div className="leading-none select-none">
+            <div className="text-[22px] font-extrabold text-white tracking-[-0.02em]">
+              Mann <span className="bg-gradient-to-r from-[#d1fae5] via-[#6ee7b7] to-[#10b981] bg-clip-text text-transparent">Saathi</span>
+            </div>
+            <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.26em] text-[#6ee7b7]/80">Counsellor Portal</div>
+          </div>
           <nav className="hidden md:flex items-center gap-1">
             {navItems.map((item) => (
               <button
                 key={item}
                 onClick={() => setActiveNav(item)}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105"
-                style={{
-                  background: activeNav === item ? "#f0fdfa" : "transparent",
-                  color: activeNav === item ? "#0d9488" : "#475569",
-                  fontFamily: "Manrope, sans-serif",
-                }}
+                className={`relative px-3.5 py-2 rounded-full text-[13px] font-medium transition-colors ${
+                  activeNav === item ? "text-white" : "text-[#9aa5b5] hover:text-white"
+                }`}
+                style={{ fontFamily: "Inter, sans-serif" }}
               >
-                {item}
+                {activeNav === item && (
+                  <motion.span
+                    layoutId="ms-nav-pill"
+                    className="absolute inset-0 rounded-full border border-emerald-300/30 bg-emerald-400/10"
+                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                  />
+                )}
+                <span className="relative">{item}</span>
                 {item === "Alerts" && activeAlerts.length > 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                  <span className="relative ml-1.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
                     {activeAlerts.length}
                   </span>
                 )}
@@ -505,14 +658,17 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-[#475569]">
-            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+          <div className="hidden lg:flex items-center gap-2 h-9 px-3.5 rounded-full border border-white/10 bg-white/[0.04] text-[12px] text-[#c9d2de]">
+            <span className="relative flex w-2 h-2">
+              <span className="absolute inset-0 rounded-full bg-emerald-400/70 animate-ping" />
+              <span className="relative w-2 h-2 rounded-full bg-emerald-400" />
+            </span>
             Live Monitor Active
           </div>
           <button
             onClick={onLogout}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors hover:bg-red-50 text-red-600 border border-transparent hover:border-red-200"
-            style={{ background: "#f1f5f9", fontFamily: "Manrope, sans-serif" }}
+            className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium transition-colors text-[#fca5a5] border border-red-400/20 bg-red-500/[0.06] hover:bg-red-500/15 hover:text-white"
+            style={{ fontFamily: "Inter, sans-serif" }}
           >
             Logout ({user.name})
           </button>
@@ -520,19 +676,26 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
       </header>
 
       {/* MAIN CONTAINER */}
-      <main className="flex-1 px-6 py-6 max-w-7xl mx-auto w-full space-y-6">
-        {/* WELCOME */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <main key={activeNav} className="relative z-10 flex-1 px-4 sm:px-6 py-8 max-w-7xl mx-auto w-full space-y-6">
+        {/* WELCOME — Dashboard tab only */}
+        {activeNav === "Dashboard" && (
           <div>
-            <h1 className="text-2xl font-bold text-[#0f172a]" style={{ fontFamily: "Manrope, sans-serif" }}>Welcome, {user.name}</h1>
-            <p className="text-sm text-[#64748b] mt-0.5">Role: Counsellor / Case Officer — Authorized Access Only</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.26em] text-[#6ee7b7]">
+              Case overview · {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" })}
+            </p>
+            <h1 className="mt-2 text-[34px] sm:text-[42px] font-extrabold leading-[1.08] tracking-[-0.025em] text-white">
+              Welcome, <span className="bg-gradient-to-r from-[#d1fae5] via-[#6ee7b7] to-[#34d399] bg-clip-text text-transparent">{user.name}</span>
+            </h1>
+            <p className="text-sm text-[#64748b] mt-2">Counsellor / Case Officer — authorised access only</p>
           </div>
-          {error && (
-            <div className="px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-semibold">
-              ⚠️ {error}
-            </div>
-          )}
-        </div>
+        )}
+
+        {/* Backend status — shown on every tab */}
+        {error && (
+          <div className="px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-semibold w-fit">
+            ⚠️ {error}
+          </div>
+        )}
 
         {/* 1. DASHBOARD NAVIGATION TABS VIEW */}
         {activeNav === "Dashboard" && (
@@ -540,26 +703,46 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             {/* KPI STATS CARDS */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
-                { label: "Assigned Cases", value: activeCasesCount.toString(), bg: "#eff6ff", border: "#bfdbfe", text: "#1e40af", icon: "👥" },
-                { label: "High / Severe Risk", value: highRiskCount.toString(), bg: "#fef2f2", border: "#fecaca", text: "#dc2626", icon: "🚨" },
-                { label: "Moderate Risk", value: moderateRiskCount.toString(), bg: "#fffbeb", border: "#fde68a", text: "#d97706", icon: "⚠️" },
-                { label: "Active Alerts", value: activeAlerts.length.toString(), bg: "#fdf2f8", border: "#fbcfe8", text: "#db2777", icon: "🔔" },
-              ].map((card) => (
-                <div
-                  key={card.label}
-                  className="p-5 rounded-3xl border hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out cursor-default"
-                  style={{ background: card.bg, borderColor: card.border }}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-[#64748b] mb-1">{card.label}</p>
-                      <p className="text-3xl font-bold" style={{ color: card.text, fontFamily: "Manrope, sans-serif" }}>{card.value}</p>
-                    </div>
-                    <span className="text-2xl">{card.icon}</span>
-                  </div>
-                </div>
+                { label: "Assigned Cases", value: activeCasesCount, accent: "#86efac", icon: "users" as const },
+                { label: "High / Severe Risk", value: highRiskCount, accent: "#f87171", icon: "siren" as const },
+                { label: "Moderate Risk", value: moderateRiskCount, accent: "#fbbf24", icon: "alert" as const },
+                { label: "Active Alerts", value: activeAlerts.length, accent: "#2dd4bf", icon: "bell" as const },
+              ].map((card, i) => (
+                <KpiCard key={card.label} {...card} index={i} />
               ))}
             </div>
+
+            {/* Selected case — three-column signal overview */}
+            {selectedCaseId && (
+              <div className="rounded-3xl p-5 sm:p-6 border border-emerald-100/40 bg-white shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>
+                      Case Signal Overview{selectedCase?.user?.name ? ` — ${selectedCase.user.name}` : ""}
+                    </h3>
+                    <p className="text-xs text-[#64748b]">Conversational signals · fusion score · physiological signals</p>
+                  </div>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <select
+                      value={selectedCaseId || ""}
+                      onChange={(e) => setSelectedCaseId(e.target.value)}
+                      aria-label="Select case"
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-800 outline-none focus:border-teal-500"
+                    >
+                      {cases.map((c) => (
+                        <option key={c.case_id} value={c.case_id}>
+                          {c.user?.name} ({c.nhaa_ref})
+                        </option>
+                      ))}
+                    </select>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
+                      Sleep & EDA: Demo
+                    </span>
+                  </div>
+                </div>
+                {caseSignalsGrid}
+              </div>
+            )}
 
             {/* CASES GRID */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -592,10 +775,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   </div>
                 </div>
 
-                <div className="rounded-3xl overflow-hidden border border-emerald-100/40 hover:shadow-sm transition-all duration-300" style={{ background: "#ffffff" }}>
+                <div className="rounded-3xl overflow-hidden border border-emerald-100/40 hover:shadow-sm transition-all duration-300" style={{ background: "var(--ms-card)" }}>
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-[#f8fafc]" style={{ borderBottom: "1px solid #f1f5f9" }}>
+                      <tr className="bg-[#f8fafc]" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748b]">Case / Patient</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748b]">Latest Distress / Priority Score</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-[#64748b]">Trend</th>
@@ -619,7 +802,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                               key={c.case_id}
                               onClick={() => setSelectedCaseId(c.case_id)}
                               className={`transition-colors hover:bg-slate-50 cursor-pointer ${isSelected ? "bg-teal-50/50" : ""}`}
-                              style={{ borderBottom: "1px solid #f1f5f9" }}
+                              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
                             >
                               <td className="px-4 py-4">
                                 <div className="font-semibold text-[#0f172a]">{c.user?.name || "Anonymous Patient"}</div>
@@ -681,7 +864,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       ? `Triage Note: ${selectedCase.priority_reason}`
                       : selectedCaseDetails?.summary?.explanation_text || "Patient demonstrates consistent biosignal stabilization post-session."
                   }
-                  distressScore={selectedCase ? Math.round(selectedCase.latest_distress_score / 10) : undefined}
+                  distressScore={selectedCase && Number.isFinite(Number(selectedCase.latest_distress_score)) ? Math.round(Number(selectedCase.latest_distress_score) / 10) : undefined}
                 />
               </div>
             </div>
@@ -896,7 +1079,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             ) : null}
 
             {/* CHART */}
-            <div className="rounded-3xl p-6 border border-emerald-100/40 hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out" style={{ background: "#ffffff" }}>
+            <div className="rounded-3xl p-6 border border-emerald-100/40 hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out" style={{ background: "var(--ms-card)" }}>
               <div className="mb-4">
                 <h3 className="font-bold text-slate-900 text-sm">Well-being Score Trend Timeline</h3>
                 <p className="text-xs text-[#64748b] mt-0.5">Historical trend mapping patient's distress ratings across active turns</p>
@@ -911,16 +1094,16 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0d9488" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#5eead4" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#5eead4" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#64748b" }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#64748b" }} />
-                    <Tooltip />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#9aa5b5" }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#9aa5b5" }} />
+                    <Tooltip contentStyle={{ background: "#0f1420", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#eef2f7" }} />
                     <ReferenceLine y={85} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "Severe Distress", fill: "#ef4444", fontSize: 10 }} />
-                    <Area type="monotone" dataKey="distress" stroke="#0d9488" strokeWidth={2} fill="url(#chartGrad)" />
+                    <Area type="monotone" dataKey="distress" stroke="#5eead4" strokeWidth={2} fill="url(#chartGrad)" />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
@@ -1121,7 +1304,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                         <div>
                           <div className="text-xs text-[#64748b]">Total Check-ins</div>
-                          <div className="font-bold text-lg text-slate-800">{selectedCaseDetails.summary?.total_check_ins} turns</div>
+                          <div className="font-bold text-lg text-slate-800">{selectedCaseDetails.summary?.total_check_ins ?? history.length} turns</div>
                         </div>
                         <div>
                           <div className="text-xs text-[#64748b]">Last Interaction (IST)</div>
@@ -1408,7 +1591,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
         {/* 3. ALERTS VIEW */}
         {activeNav === "Alerts" && (
-          <div className="rounded-2xl p-6 border border-[#e2e8f0]" style={{ background: "#ffffff" }}>
+          <div className="rounded-2xl p-6 border border-[#e2e8f0]" style={{ background: "var(--ms-card)" }}>
             <div className="mb-4">
               <h2 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Distress Alert Logs</h2>
               <p className="text-xs text-[#64748b] mt-0.5">Critical risk alerts generated by the distress scorer, including recommended legal relief provisions (Timestamps in IST)</p>
@@ -1501,7 +1684,11 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   </div>
                   <div className="text-right">
                     <span className="text-xs text-slate-500">Current Score</span>
-                    <h4 className="font-black text-red-600 text-xl">{selectedCaseDetails?.summary?.current_distress_score * 100}%</h4>
+                    <h4 className="font-black text-red-600 text-xl">{(() => {
+                      const raw = selectedCaseDetails?.summary?.current_distress_score;
+                      const pct = Number.isFinite(Number(raw)) && raw !== null ? Number(raw) * 100 : Number(selectedCase?.latest_distress_score);
+                      return Number.isFinite(pct) ? `${Math.round(pct * 10) / 10}%` : "—";
+                    })()}</h4>
                   </div>
                 </div>
 
@@ -1509,11 +1696,11 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="day" />
-                        <YAxis />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="distress" stroke="#0d9488" fill="#f1f5f9" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#9aa5b5" }} />
+                        <YAxis tick={{ fontSize: 10, fill: "#9aa5b5" }} />
+                        <Tooltip contentStyle={{ background: "#0f1420", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#eef2f7" }} />
+                        <Area type="monotone" dataKey="distress" stroke="#5eead4" fill="rgba(94,234,212,0.12)" />
                       </AreaChart>
                     </ResponsiveContainer>
                   ) : (
@@ -1534,12 +1721,12 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
             <div className="rounded-2xl p-6 border border-[#e2e8f0] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2.5">
-                  <h2 className="font-bold text-slate-900 text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Telemetry & Holistic Mental Status</h2>
+                  <h2 className="font-bold text-slate-900 text-lg" style={{ fontFamily: "Manrope, sans-serif" }}>Biosignal Telemetry</h2>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-700 border border-purple-200">
                     Prototype / Demo Integration
                   </span>
                 </div>
-                <p className="text-xs text-[#64748b] mt-0.5">Continuous physiological signal monitoring correlated with conversational distress modeling</p>
+                <p className="text-xs text-[#64748b] mt-0.5">Continuous physiological signal monitoring from the wearable device</p>
               </div>
 
               {/* Case / Patient Selector */}
@@ -1625,130 +1812,36 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   </div>
                   {isRohanCase2 ? (
                     <p className="text-red-800 leading-relaxed">
-                      <strong>Biosignal Context:</strong> Sleep duration reduced ({bioData?.sleep?.duration_formatted || "6h 42m"}), elevated skin conductance ({bioData?.skin_conductance?.average_us || 2.8} µS) with {bioData?.skin_conductance?.stress_events || 4} physiological response markers. Contextual physiological observations reinforce monitored conversational distress signals.
+                      <strong>Biosignal Context:</strong> Sleep duration reduced ({bioData?.sleep?.duration_formatted || "6h 42m"}), elevated skin conductance ({bioData?.skin_conductance?.average_us || 2.8} µS) with {bioData?.skin_conductance?.stress_events || 4} physiological response markers.
                     </p>
                   ) : (
                     <p className="text-red-800 leading-relaxed">
-                      <strong>Biosignal Context:</strong> No wearable device is attached to this case — this alert is based on conversational signals only.
+                      <strong>Biosignal Context:</strong> No wearable device is attached to this case, so there are no physiological readings for this alert.
                     </p>
                   )}
                 </div>
               </div>
             )}
 
-            {/* SECTION: OVERALL MENTAL STATUS (HOLISTIC ASSESSMENT) */}
+            {/* SECTION: PHYSIOLOGICAL SIGNALS (biosignals only — no text/voice/fusion here) */}
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                 <div>
-                  <h3 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Overall Mental Status (Holistic Assessment)</h3>
-                  <p className="text-xs text-[#64748b]">Decision-support layer combining conversational AI indicators with prototype physiological telemetry</p>
+                  <h3 className="font-bold text-slate-900 text-base" style={{ fontFamily: "Manrope, sans-serif" }}>Physiological Signals</h3>
+                  <p className="text-xs text-[#64748b]">Wearable readings for this case</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-extrabold border ${
-                    holisticData?.status_color === "red" ? "bg-red-100 text-red-700 border-red-200" :
-                    holisticData?.status_color === "orange" ? "bg-orange-100 text-orange-700 border-orange-200" :
-                    holisticData?.status_color === "amber" ? "bg-amber-100 text-amber-700 border-amber-200" :
-                    "bg-green-100 text-green-700 border-green-200"
-                  }`}>
-                    {holisticData?.current_status || "Moderate Concern"}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                    Trend: {holisticData?.trend || "Improving"}
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-green-50 text-green-700 border border-green-200">
+                    Heart Rate & SpO2: Live
                   </span>
                   <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
-                    Confidence: Demo / Prototype
+                    Sleep & Skin Conductance: Demo
                   </span>
                 </div>
               </div>
 
-              {/* Multimodal Signal Matrix */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center">
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Text Analysis</div>
-                  <div className="font-extrabold text-slate-800 text-2xl sm:text-3xl my-1 tracking-tight">{holisticData?.signals?.text_score || "40%"}</div>
-                  <div className="text-[10px] text-slate-400">Linguistic</div>
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Voice Analysis</div>
-                  <div className="font-extrabold text-slate-800 text-sm my-2">{holisticData?.signals?.voice_score || "59%"}</div>
-                  <div className="text-[10px] text-slate-400">Acoustic</div>
-                </div>
-                <div className="p-3 bg-teal-50/50 border border-teal-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-teal-700 font-bold uppercase tracking-wider">Fusion Score</div>
-                  <div className="font-extrabold text-teal-800 text-2xl sm:text-3xl my-1 tracking-tight">{holisticData?.signals?.fusion_score || "52%"}</div>
-                  <div className="text-[10px] text-teal-600 font-medium">Distress Tier: {holisticData?.signals?.risk_tier || "MODERATE"}</div>
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Sleep</div>
-                  {isRohanCase2 ? (
-                    <>
-                      <div className="font-bold text-purple-700 text-xs mt-1">{holisticData?.signals?.sleep_quality || "Moderate"}</div>
-                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.sleep?.duration_formatted || "6h 42m"}</div>
-                      <div className="text-[9px] font-bold uppercase mt-1 text-slate-400">Demo</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
-                      <div className="text-[10px] text-slate-400">No device data</div>
-                    </>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Heart Rate</div>
-                  {liveHeartRate != null ? (
-                    <>
-                      <div className="font-bold text-slate-600 text-xs mt-1">{heartRateStatusLabel}</div>
-                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{Math.round(liveHeartRate)} BPM</div>
-                      <div className="text-[9px] font-bold uppercase mt-1 text-green-600">● Live</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
-                      <div className="text-[10px] text-slate-400">{isRohanCase2 ? "No live reading yet" : "No device data"}</div>
-                    </>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Skin Conductance</div>
-                  {isRohanCase2 ? (
-                    <>
-                      <div className="font-bold text-orange-600 text-xs mt-1">{holisticData?.signals?.skin_conductance_status || "Elevated"}</div>
-                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{bioData?.skin_conductance?.average_us || 2.8} µS</div>
-                      <div className="text-[9px] font-bold uppercase mt-1 text-slate-400">Demo</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
-                      <div className="text-[10px] text-slate-400">No device data</div>
-                    </>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col justify-between">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Blood Oxygen</div>
-                  {liveSpo2 != null ? (
-                    <>
-                      <div className="font-bold text-teal-700 text-xs mt-1">{spo2StatusLabel}</div>
-                      <div className="font-bold text-slate-800 text-lg sm:text-xl tracking-tight">{Math.round(liveSpo2)}% SpO2</div>
-                      <div className="text-[9px] font-bold uppercase mt-1 text-green-600">● Live</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-bold text-slate-300 text-lg sm:text-xl tracking-tight">—</div>
-                      <div className="text-[10px] text-slate-400">{isRohanCase2 ? "No live reading yet" : "No device data"}</div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Dynamic Overall Interpretation */}
-              <div className="p-4 bg-teal-50/30 border border-teal-100 rounded-xl space-y-2">
-                <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
-                  <span>💡 Holistic Clinical-Support Interpretation</span>
-                  <span className="text-[10px] font-normal text-teal-700">(Generated from synthesized multimodal + biosignal channels)</span>
-                </div>
-                <p className="text-xs text-slate-800 leading-relaxed italic">
-                  "{holisticData?.overall_interpretation || "Current multimodal analysis indicates moderate distress. Sleep quality is observed as below baseline while resting heart rate remains within the normal demo range. Proactive counsellor check-in and safety monitoring are recommended."}"
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                {physioTiles}
               </div>
 
               {/* Biosignal Contributing Indicators */}
@@ -2037,9 +2130,9 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                     onClick={() => setSelectedCaseId(c.case_id)}
                     className="p-4 rounded-2xl text-left transition-all border flex flex-col justify-between"
                     style={{
-                      background: isSelected ? "#f0fdfa" : "#ffffff",
-                      borderColor: isSelected ? "#0d9488" : "#e2e8f0",
-                      boxShadow: isSelected ? "0 0 0 3px rgba(13,148,136,0.12)" : "0 1px 3px rgba(0,0,0,0.02)"
+                      background: isSelected ? "rgba(45,212,191,0.08)" : "var(--ms-card)",
+                      borderColor: isSelected ? "rgba(94,234,212,0.6)" : "rgba(255,255,255,0.08)",
+                      boxShadow: isSelected ? "0 0 0 3px rgba(94,234,212,0.12)" : "none"
                     }}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -2366,3 +2459,144 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Biosignal view helpers                                             */
+/* ------------------------------------------------------------------ */
+
+/** Compact side-column tile (label · optional status · value · live/demo badge). */
+function SignalTile({
+  label,
+  value,
+  sub,
+  status,
+  statusClass = "text-slate-600",
+  badge,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  status?: string | null;
+  statusClass?: string;
+  badge?: "live" | "demo";
+  muted?: boolean;
+}) {
+  return (
+    <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{label}</div>
+        {status && <div className={`font-bold text-xs mt-0.5 ${statusClass}`}>{status}</div>}
+        {sub && <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>}
+      </div>
+      <div className="text-right shrink-0">
+        <div className={`font-extrabold text-lg sm:text-xl tracking-tight ${muted ? "text-slate-300" : "text-slate-800"}`}>{value}</div>
+        {badge === "live" && <div className="text-[9px] font-bold uppercase text-green-600">● Live</div>}
+        {badge === "demo" && <div className="text-[9px] font-bold uppercase text-slate-400">Demo</div>}
+      </div>
+    </div>
+  );
+}
+
+const TIER_STYLES: Record<string, { ring: string; text: string; chip: string }> = {
+  SEVERE: { ring: "#dc2626", text: "text-red-700", chip: "bg-red-100 text-red-700 border-red-200" },
+  CRITICAL: { ring: "#dc2626", text: "text-red-700", chip: "bg-red-100 text-red-700 border-red-200" },
+  HIGH: { ring: "#ea580c", text: "text-orange-700", chip: "bg-orange-100 text-orange-700 border-orange-200" },
+  MODERATE: { ring: "#d97706", text: "text-amber-700", chip: "bg-amber-100 text-amber-700 border-amber-200" },
+  LOW: { ring: "#0d9488", text: "text-teal-700", chip: "bg-teal-100 text-teal-700 border-teal-200" },
+};
+
+/** Large circular fusion-score gauge with distress tier and trend underneath. */
+function FusionScorePanel({ score, tier, trend }: { score: string | number; tier: string; trend: string }) {
+  const pct = Math.max(0, Math.min(100, parseFloat(String(score)) || 0));
+  const tierKey = String(tier).toUpperCase();
+  const style = TIER_STYLES[tierKey] || TIER_STYLES.MODERATE;
+  const t = String(trend).toLowerCase();
+  const trendView = t.includes("wors") || t.includes("ris")
+    ? { arrow: "↑", cls: "bg-red-50 text-red-700 border-red-200" }
+    : t.includes("improv") || t.includes("fall")
+    ? { arrow: "↓", cls: "bg-green-50 text-green-700 border-green-200" }
+    : { arrow: "→", cls: "bg-slate-100 text-slate-700 border-slate-200" };
+
+  // SVG ring: 270° arc (open at the bottom) reads as a gauge rather than a pie.
+  const size = 240;
+  const stroke = 18;
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  const arc = circumference * 0.75;
+  const filled = arc * (pct / 100);
+
+  return (
+    <div className="h-full rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/70 to-white p-6 flex flex-col items-center justify-center text-center">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-teal-700">Fusion Score</div>
+      <div className="relative mt-3 w-[200px] h-[200px] sm:w-[240px] sm:h-[240px]">
+        <svg viewBox={`0 0 ${size} ${size}`} className="w-full h-full -rotate-[225deg]">
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={stroke}
+            strokeLinecap="round" strokeDasharray={`${arc} ${circumference}`} />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={style.ring} strokeWidth={stroke}
+            strokeLinecap="round" strokeDasharray={`${filled} ${circumference}`}
+            style={{ transition: "stroke-dasharray 900ms ease-out, stroke 300ms" }} />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className={`font-extrabold tracking-tight leading-none text-[56px] sm:text-[64px] ${style.text}`} style={{ fontFamily: "Manrope, sans-serif" }}>
+            {Math.round(pct)}<span className="text-2xl align-top">%</span>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">combined distress</div>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        <span className={`px-3 py-1 rounded-full text-xs font-extrabold tracking-wider border ${style.chip}`}>{tierKey}</span>
+        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${trendView.cls}`}>
+          {trendView.arrow} {trend}
+        </span>
+      </div>
+      <p className="mt-3 text-[11px] text-slate-400 max-w-[260px]">Text + voice + biosignal channels fused into one distress index</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  KPI card — dark glass, accent edge, count-up number                */
+/* ------------------------------------------------------------------ */
+
+const KPI_ICONS = {
+  users: <path strokeLinecap="round" strokeLinejoin="round" d="M17 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M10 11a4 4 0 100-8 4 4 0 000 8zM21 20v-1a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />,
+  siren: <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2M5.6 5.6l1.4 1.4M18.4 5.6L17 7M6 17v-4a6 6 0 1112 0v4M4 17h16v3H4z" />,
+  alert: <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />,
+  bell: <path strokeLinecap="round" strokeLinejoin="round" d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />,
+};
+
+function KpiCard({ label, value, accent, icon, index }: { label: string; value: number; accent: string; icon: keyof typeof KPI_ICONS; index: number }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const controls = animate(0, value, {
+      duration: 1.2,
+      delay: 0.15 + index * 0.08,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (v) => setShown(Math.round(v)),
+    });
+    return () => controls.stop();
+  }, [value, index]);
+
+  return (
+    <motion.div
+      whileHover={{ y: -4 }}
+      transition={{ type: "spring", stiffness: 300, damping: 24 }}
+      className="ms-shimmer rounded-3xl border border-white/10 p-5 cursor-default"
+      style={{ background: `linear-gradient(160deg, ${accent}14, rgba(14,19,31,0.78) 55%)` }}
+    >
+      <div className="flex items-start justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9aa5b5]">{label}</p>
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${accent}1f`, color: accent }}>
+          <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+            {KPI_ICONS[icon]}
+          </svg>
+        </span>
+      </div>
+      <p className="mt-3 text-[40px] font-extrabold leading-none tracking-[-0.03em] tabular-nums" style={{ color: accent }}>
+        {shown}
+      </p>
+    </motion.div>
+  );
+}
+
