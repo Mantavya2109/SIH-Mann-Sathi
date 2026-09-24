@@ -34,6 +34,10 @@ stt_live_test_temp.wav
 temp_mic_test.wav
 temp_test_audio.wav
 
+
+secrets.h
+wearable_health/secrets.h
+**/secrets.h
 # Configuration & Secrets
 .env
 .env.*
