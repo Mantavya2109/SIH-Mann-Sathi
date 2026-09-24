@@ -21,8 +21,19 @@ from backend.app.services.distress_scorer import apply_distress_reduction_cap, g
 
 logger = logging.getLogger(__name__)
 
+def is_valid_uuid(val: Any) -> bool:
+    if not val:
+        return False
+    try:
+        uuid.UUID(str(val))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
 def get_case_baseline(case_id: str) -> dict:
     """Pull the case's first 2-3 check-ins from Supabase to establish a personal baseline."""
+    if not is_valid_uuid(case_id):
+        return {"avg_score": 0.0}
     try:
         response = supabase.table("distress_scores") \
             .select("total_score") \
@@ -65,6 +76,9 @@ class ConversationSession:
                 num_val = float(last_ds)
                 return num_val * 100.0 if num_val <= 1.0 else num_val
                 
+        if not is_valid_uuid(self.case_id):
+            return None
+
         try:
             prev_res = supabase.table("distress_scores") \
                 .select("total_score") \
@@ -160,23 +174,24 @@ class ConversationSession:
                 "conversational_features": conversational_features
             }
 
-        # 4. Write to check_ins table in Supabase
+        # 4. Write to check_ins table in Supabase if valid UUID
         checkin_id = str(uuid.uuid4())
-        try:
-            supabase.table("check_ins").insert({
-                "id": checkin_id,
-                "case_id": self.case_id,
-                "timestamp": timestamp_str,
-                "channel": channel,
-                "raw_text": transcript,
-                "language": "English",
-                "sentiment_score": float(sentiment_val),
-                "emotion": primary_emotion,
-                "distress_indicators": distress_indicators,
-                "voice_features": voice_features
-            }).execute()
-        except Exception as e:
-            logger.error(f"Failed to insert turn into check_ins table: {e}", exc_info=True)
+        if is_valid_uuid(self.case_id):
+            try:
+                supabase.table("check_ins").insert({
+                    "id": checkin_id,
+                    "case_id": self.case_id,
+                    "timestamp": timestamp_str,
+                    "channel": channel,
+                    "raw_text": transcript,
+                    "language": "English",
+                    "sentiment_score": float(sentiment_val),
+                    "emotion": primary_emotion,
+                    "distress_indicators": distress_indicators,
+                    "voice_features": voice_features
+                }).execute()
+            except Exception as e:
+                logger.error(f"Failed to insert turn into check_ins table: {e}", exc_info=True)
 
         # 5. Calculate baseline deviation and trend
         baseline = get_case_baseline(self.case_id)
@@ -197,20 +212,21 @@ class ConversationSession:
             "baseline_deviation": round(deviation, 2)
         }
 
-        # 6. Write to distress_scores table in Supabase
+        # 6. Write to distress_scores table in Supabase if valid UUID
         score_id = str(uuid.uuid4())
-        try:
-            supabase.table("distress_scores").insert({
-                "id": score_id,
-                "case_id": self.case_id,
-                "timestamp": timestamp_str,
-                "total_score": total_score_db,
-                "sub_scores": sub_scores,
-                "trend": trend,
-                "explanation_text": explanation_text
-            }).execute()
-        except Exception as e:
-            logger.error(f"Failed to insert into distress_scores table: {e}", exc_info=True)
+        if is_valid_uuid(self.case_id):
+            try:
+                supabase.table("distress_scores").insert({
+                    "id": score_id,
+                    "case_id": self.case_id,
+                    "timestamp": timestamp_str,
+                    "total_score": total_score_db,
+                    "sub_scores": sub_scores,
+                    "trend": trend,
+                    "explanation_text": explanation_text
+                }).execute()
+            except Exception as e:
+                logger.error(f"Failed to insert into distress_scores table: {e}", exc_info=True)
 
         # 7. Evaluate multimodal fusion result + crisis safety override for alert creation
         should_trigger_alert = (
@@ -219,7 +235,7 @@ class ConversationSession:
             total_score_db >= 60.0
         )
 
-        if should_trigger_alert:
+        if should_trigger_alert and is_valid_uuid(self.case_id):
             alert_id = str(uuid.uuid4())
             if not recommendation_text:
                 recommendation_text = "Prioritize immediate counsellor outreach and legal relief assessment."
@@ -275,18 +291,31 @@ class ConversationSessionManager:
         """
         Finds the active case ID for the given user ID.
         If multiple active cases exist, picks the one with the latest enrollment_date or check-in.
-        If no active case exists, falls back to the user_id itself (Case 1).
+        If no active case exists, falls back to a valid deterministic UUID.
         """
         try:
+            if not user_id:
+                return str(uuid.uuid4())
+
+            # Check direct user mapping for demo users
+            uid_lower = str(user_id).lower()
+            if "victim_1" in uid_lower or "ananya" in uid_lower or "60895178" in uid_lower:
+                return "60895178-7a8b-4392-961b-ac82d4b7ec0c"
+            elif "victim_2" in uid_lower or "rohan" in uid_lower or "a0a0a0a0" in uid_lower or "7d64f81f" in uid_lower:
+                return "a0a0a0a0-b0b0-c0c0-d0d0-e0e0e0e0e0e0"
+
             # Determine user identity based on auth user_id lookup
             user_name = None
-            users_list = supabase.auth.admin.list_users()
-            auth_users = users_list if isinstance(users_list, list) else getattr(users_list, "users", [])
-            for u in auth_users:
-                if str(u.id) == str(user_id):
-                    meta = getattr(u, "user_metadata", {}) or {}
-                    user_name = meta.get("name", "").upper()
-                    break
+            try:
+                users_list = supabase.auth.admin.list_users()
+                auth_users = users_list if isinstance(users_list, list) else getattr(users_list, "users", [])
+                for u in auth_users:
+                    if str(u.id) == str(user_id):
+                        meta = getattr(u, "user_metadata", {}) or {}
+                        user_name = meta.get("name", "").upper()
+                        break
+            except Exception as ex:
+                logger.warning(f"Failed to list auth users in get_active_case_id_for_user: {ex}")
 
             # Fetch all cases
             res = supabase.table("cases").select("*").execute()
@@ -304,7 +333,6 @@ class ConversationSessionManager:
                 elif user_name and "ANANYA" in user_name and "ANANYA" in nhaa_ref.upper():
                     is_match = True
                 elif not user_name:
-                    # Fallback in case list_users lookup fails
                     if "7d64f81f-8108-467a-ae43-36986d04766f" in str(user_id) and "ROHAN" in nhaa_ref.upper():
                         is_match = True
                     elif "60895178-7a8b-4392-961b-ac82d4b7ec0c" in str(user_id) and "ANANYA" in nhaa_ref.upper():
@@ -323,19 +351,21 @@ class ConversationSessionManager:
 
             # Filter for active cases
             active_cases = [c for c in candidate_cases if c.get("stage") == "active"]
-            if not active_cases:
-                # If no active cases found, try to find inactive ones and default to the latest one, or fallback to user_id
-                if candidate_cases:
-                    candidate_cases.sort(key=lambda x: (get_case_number(x.get("nhaa_ref", "")), x.get("enrollment_date", "")), reverse=True)
-                    return candidate_cases[0]["id"]
-                return user_id
+            if active_cases:
+                active_cases.sort(key=lambda x: (get_case_number(x.get("nhaa_ref", "")), x.get("enrollment_date", "")), reverse=True)
+                return active_cases[0]["id"]
+            elif candidate_cases:
+                candidate_cases.sort(key=lambda x: (get_case_number(x.get("nhaa_ref", "")), x.get("enrollment_date", "")), reverse=True)
+                return candidate_cases[0]["id"]
 
-            # Sort active cases by case number descending, then enrollment_date descending
-            active_cases.sort(key=lambda x: (get_case_number(x.get("nhaa_ref", "")), x.get("enrollment_date", "")), reverse=True)
-            return active_cases[0]["id"]
+            if is_valid_uuid(user_id):
+                return user_id
+            return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id)))
         except Exception as e:
             logger.warning(f"Error resolving active case for user {user_id}: {e}")
-            return user_id
+            if is_valid_uuid(user_id):
+                return user_id
+            return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id)))
 
     def create_session(self, user_id: Optional[str] = None, max_history: int = 10) -> str:
         """
@@ -351,22 +381,22 @@ class ConversationSessionManager:
         # Write to Supabase database (live persistence)
         try:
             case_exists = False
-            if user_id:
+            if is_valid_uuid(case_id):
                 try:
-                    res_case = supabase.table("cases").select("*").eq("id", user_id).execute()
+                    res_case = supabase.table("cases").select("*").eq("id", case_id).execute()
                     if res_case.data:
                         case_exists = True
                         if res_case.data[0].get("stage") == "inactive":
-                            supabase.table("cases").update({"stage": "active"}).eq("id", user_id).execute()
+                            supabase.table("cases").update({"stage": "active"}).eq("id", case_id).execute()
                 except Exception as ex:
                     logger.warning(f"Error checking case existence in Supabase: {ex}")
             
-            if not case_exists:
+            if not case_exists and is_valid_uuid(case_id):
                 supabase.table("cases").insert({
                     "id": case_id,
                     "enrollment_date": timestamp_str,
                     "stage": "active",
-                    "nhaa_ref": "ROHAN-PERSISTENT" if user_id else f"TEST-{session_id[:8]}"
+                    "nhaa_ref": "ROHAN-PERSISTENT" if (user_id and "rohan" in str(user_id).lower()) else f"CASE-{session_id[:8]}"
                 }).execute()
 
                 supabase.table("consents").insert({
@@ -393,28 +423,33 @@ class ConversationSessionManager:
 
         try:
             # Query Supabase for historical session data
-            # Check if session_id is a known case_id
-            res = supabase.table("cases").select("*").eq("id", session_id).execute()
-            is_case_id_lookup = bool(res.data)
+            # Check if session_id is a known case_id (only if valid UUID)
+            is_case_id_lookup = False
+            if is_valid_uuid(session_id):
+                res = supabase.table("cases").select("*").eq("id", session_id).execute()
+                is_case_id_lookup = bool(res.data)
             
             case_id = session_id if is_case_id_lookup else self.get_active_case_id_for_user(session_id)
             session = ConversationSession(session_id=session_id, case_id=case_id)
             
-            # Fetch check-ins and scores for this case
-            checkins_res = supabase.table("check_ins") \
-                .select("*") \
-                .eq("case_id", case_id) \
-                .order("timestamp") \
-                .execute()
-                
-            scores_res = supabase.table("distress_scores") \
-                .select("*") \
-                .eq("case_id", case_id) \
-                .order("timestamp") \
-                .execute()
-                
-            checkins_data = checkins_res.data or []
-            scores_data = scores_res.data or []
+            # Fetch check-ins and scores for this case if valid UUID
+            checkins_data = []
+            scores_data = []
+            if is_valid_uuid(case_id):
+                checkins_res = supabase.table("check_ins") \
+                    .select("*") \
+                    .eq("case_id", case_id) \
+                    .order("timestamp") \
+                    .execute()
+                    
+                scores_res = supabase.table("distress_scores") \
+                    .select("*") \
+                    .eq("case_id", case_id) \
+                    .order("timestamp") \
+                    .execute()
+                    
+                checkins_data = checkins_res.data or []
+                scores_data = scores_res.data or []
             
             # If it's a specific session lookup, filter in python
             if not is_case_id_lookup:
