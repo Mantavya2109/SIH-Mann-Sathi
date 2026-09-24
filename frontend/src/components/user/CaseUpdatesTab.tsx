@@ -56,7 +56,7 @@ export default function CaseUpdatesTab({ user }: Props) {
   async function loadCaseUpdates() {
     try {
       setUpdatesState("loading");
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/user/${user.id}/case-updates`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
