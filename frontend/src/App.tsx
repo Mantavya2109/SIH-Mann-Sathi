@@ -1,9 +1,10 @@
-import { useState } from "react";
-import LoginScreen from "./screens/LoginScreen";
+import { useCallback, useState } from "react";
+import GlobeLanding from "./screens/GlobeLanding";
 import VictimChat from "./screens/VictimChat";
 import CounsellorDashboard from "./screens/CounsellorDashboard";
 import DotField from "./components/interactive/DotField";
 import { CursorSpotlight } from "./components/interactive/CursorSpotlight";
+import LoadingTransition from "./components/common/LoadingTransition";
 
 type Screen = "login" | "victim" | "counsellor";
 
@@ -17,15 +18,21 @@ interface User {
 export default function App() {
   const [screen, setScreen] = useState<Screen>("login");
   const [user, setUser] = useState<User | null>(null);
+  // Post-login breathing screen: shown over the destination page while it
+  // mounts (and starts loading its data) underneath, then fades away.
+  const [transitionRole, setTransitionRole] = useState<"victim" | "counsellor" | null>(null);
 
   const handleSelectPortal = (role: "victim" | "counsellor") => {
     const activeUser: User =
       role === "victim"
         ? { id: "user_victim_1", name: "Ananya Sharma", email: "ananya@example.com", role: "victim" }
         : { id: "counsellor_1", name: "Dr. Rajesh Kumar", email: "rajesh@mannsathi.org", role: "counsellor" };
+    setTransitionRole(role);
     setUser(activeUser);
     setScreen(role);
   };
+
+  const handleTransitionDone = useCallback(() => setTransitionRole(null), []);
 
   const handleLogout = () => {
     setUser(null);
@@ -48,7 +55,8 @@ export default function App() {
       />
 
       {/* 2. Cursor Ambient Spotlight */}
-      <CursorSpotlight />
+      {/* Mint cursor glow reads as a smudge on the dark landing; show it elsewhere only */}
+      {screen !== "login" && !transitionRole && <CursorSpotlight />}
 
       {/* 3. Foreground Page Content */}
       <div className="relative z-10 w-full min-h-screen">
@@ -61,9 +69,14 @@ export default function App() {
         )}
 
         {screen === "login" && (
-          <LoginScreen onSelectPortal={handleSelectPortal} />
+          <GlobeLanding onSelectPortal={handleSelectPortal} />
         )}
       </div>
+
+      {/* 4. Post-login breathing transition (~2s, then fades into the page) */}
+      {transitionRole && (
+        <LoadingTransition role={transitionRole} durationMs={2000} onDone={handleTransitionDone} />
+      )}
     </div>
   );
 }
