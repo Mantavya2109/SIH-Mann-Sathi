@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getApiBaseUrl } from "../../utils/api";
 
 interface Counsellor {
   id: string;
@@ -31,7 +32,7 @@ export default function MySupportTab({ user, onNavigate }: Props) {
     async function loadCounsellors() {
       try {
         setLoading(true);
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBaseUrl();
         const res = await fetch(`${baseUrl}/api/user/counsellors`);
         if (res.ok) {
           const data = await res.json();

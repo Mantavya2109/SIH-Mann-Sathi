@@ -13,6 +13,7 @@ import { StagedAIInsight } from "../components/interactive/StagedAIInsight";
 import { animate, motion } from "framer-motion";
 import "./counsellor-theme.css";
 import GhostFibers from "../components/interactive/GhostFibers";
+import { getApiBaseUrl } from "../utils/api";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -79,7 +80,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const navItems = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Location", "Settings"];
 
   const getApiUrl = (path: string) => {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const baseUrl = getApiBaseUrl();
     return `${baseUrl}${path}`;
   };
 
@@ -2436,7 +2437,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <input
                   type="text"
                   readOnly
-                  value={import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"}
+                  value={getApiBaseUrl() || "Same Origin (/api)"}
                   className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50 text-slate-600"
                 />
               </div>

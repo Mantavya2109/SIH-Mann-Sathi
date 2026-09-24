@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { FlowingWaves } from "../interactive/FlowingWaves";
 import { BreathingWidget } from "../interactive/BreathingWidget";
+import { getApiBaseUrl } from "../../utils/api";
 
 interface ActivityData {
   steps_today: number;
@@ -89,7 +90,7 @@ export default function HomeTab({ user, onNavigate, onStartExercise }: Props) {
     async function loadSnapshot() {
       try {
         setLoading(true);
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBaseUrl();
         const res = await fetch(`${baseUrl}/api/user/${user.id}/home-snapshot`);
         if (res.ok) {
           const data = await res.json();

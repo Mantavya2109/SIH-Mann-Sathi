@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getApiBaseUrl } from "../../utils/api";
 
 interface CaseDocument {
   id: string;
@@ -33,7 +34,7 @@ export default function CaseUpdatesTab({ user }: Props) {
   async function loadDocuments() {
     try {
       setLoading(true);
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const resDocs = await fetch(`${baseUrl}/api/user/${user.id}/documents`);
       if (resDocs.ok) {
         const docs = await resDocs.json();
@@ -73,7 +74,7 @@ export default function CaseUpdatesTab({ user }: Props) {
       const formData = new FormData();
       formData.append("file", file);
 
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/user/${user.id}/documents/upload`, {
         method: "POST",
         body: formData,
@@ -97,7 +98,7 @@ export default function CaseUpdatesTab({ user }: Props) {
   }
 
   function handleDownload(doc: CaseDocument) {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const baseUrl = getApiBaseUrl();
     window.open(`${baseUrl}/api/user/${user.id}/documents/${doc.id}/download`, "_blank");
   }
 
