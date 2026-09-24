@@ -414,18 +414,17 @@ class TestGroqIntegration(unittest.TestCase):
             with patch('backend.app.services.response_generator.response_generator.client') as mock_client:
                 mock_client.chat.completions.create.return_value = mock_completion
                 
-                # Mock speech emotion & Whisper STT to avoid slow downloads/heavy model runs in test
-                with patch('backend.app.main.speech_emotion_service.predict_emotion') as mock_speech_emotion, \
-                     patch('backend.app.main.speech_to_text_service.transcribe') as mock_stt, \
-                     patch('backend.app.main.text_emotion_service.predict_emotion') as mock_text_emotion:
-                     
-                    mock_speech_emotion.return_value = {"Neutral": 0.9, "Happy": 0.1}
-                    mock_stt.return_value = {
+                with patch('backend.app.main.hf_client.analyze_audio') as mock_hf_analyze:
+                    mock_hf_analyze.return_value = {
                         "transcript": "I am feeling good today.",
-                        "segments": [{"start": 0.0, "end": 1.0, "text": "I am feeling good today."}],
-                        "duration": 1.0
+                        "speech_state": "SPEECH_DETECTED",
+                        "text_state": "TEXT_EMOTIONS_AVAILABLE",
+                        "voice_emotions": {"Neutral": 0.9, "Happy": 0.1},
+                        "text_emotions": {"Joy": 0.9},
+                        "text_features": {"char_count": 24, "word_count": 5},
+                        "acoustic_features": {"pitch_mean": 150.0, "pitch_std": 20.0, "jitter": 0.01, "shimmer": 0.02, "hnr": 18.0},
+                        "vad_metrics": {"speech_duration": 1.0, "pause_duration": 0.0, "speaking_rate": 5.0}
                     }
-                    mock_text_emotion.return_value = {"Joy": 0.9}
                     
                     client = TestClient(app)
                     

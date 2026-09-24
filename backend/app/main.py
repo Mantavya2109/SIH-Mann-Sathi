@@ -3,11 +3,10 @@ import re
 import tempfile
 import shutil
 import logging
-import wave
-import av
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.schemas.analysis import DistressAnalysisResponse, ConversationResponse, SessionStartResponse, SessionEndResponse, CaseInput, PrioritizationResponse, PrioritizeRequest
+from backend.app.services.hf_client import hf_client
 from backend.app.services.speech_emotion import speech_emotion_service
 from backend.app.services.speech_to_text import speech_to_text_service
 from backend.app.services.text_emotion import text_emotion_service
@@ -39,43 +38,17 @@ logger = logging.getLogger("FastAPIMain")
 
 app = FastAPI(title="SIH Mental Health Monitoring API")
 
-# Add CORS Middleware to allow requests from the local development frontend
+# Add CORS Middleware
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins if allowed_origins else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-def convert_to_wav(input_path: str, output_path: str):
-    """
-    Converts any audio file supported by PyAV (WebM, Ogg, MP4, WAV, etc.)
-    into a standard PCM 16-bit, 16000Hz, mono WAV file.
-    """
-    with av.open(input_path) as container:
-        if not container.streams.audio:
-            raise ValueError("No audio stream found in the input file.")
-        
-        stream = container.streams.audio[0]
-        
-        # Setup resampler for 16000Hz mono 16-bit signed PCM
-        resampler = av.AudioResampler(
-            format='s16',
-            layout='mono',
-            rate=16000
-        )
-        
-        with wave.open(output_path, 'wb') as wav_out:
-            wav_out.setnchannels(1)
-            wav_out.setsampwidth(2) # 16-bit (2 bytes)
-            wav_out.setframerate(16000)
-            
-            for packet in container.decode(stream):
-                resampled_frames = resampler.resample(packet)
-                for frame in resampled_frames:
-                    data = frame.to_ndarray().tobytes()
-                    wav_out.writeframes(data)
 
 @app.get("/")
 def home():
@@ -113,9 +86,8 @@ def debug_env():
 async def analyze_audio(file: UploadFile = File(...)):
     """
     Multimodal Mental Health Distress Analysis Endpoint.
-    Accepts a single WAV audio file, processes it through voice emotion classification,
-    Whisper STT, DistilRoBERTa text emotion classification, conversational disfluency metrics,
-    and a multimodal fusion layer to assign a distress index and risk level.
+    Accepts an audio file, calls the Hugging Face hosted ML inference service,
+    and calculates distress fusion metrics.
     """
     # 1. Validate file metadata
     if not file.filename:
@@ -131,77 +103,41 @@ async def analyze_audio(file: UploadFile = File(...)):
             detail=f"Unsupported file format. Supported extensions: {', '.join(allowed_extensions)}"
         )
         
-    temp_upload_path = None
-    temp_file_path = None
-    
     try:
-        # Create temporary file for upload
-        temp_upload = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        temp_upload_path = temp_upload.name
-        
-        # Create temporary file for processed WAV
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        temp_file_path = temp_file.name
-        temp_file.close()
-        
-        # 2. Save stream to temporary path
-        shutil.copyfileobj(file.file, temp_upload)
-        temp_upload.close()
-        
-        # Validate that the file is not empty (size check)
-        if os.path.getsize(temp_upload_path) == 0:
+        content = await file.read()
+        if len(content) == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The uploaded audio file is empty (0 bytes)."
             )
             
-        # Convert audio to standard WAV format
-        try:
-            convert_to_wav(temp_upload_path, temp_file_path)
-        except Exception as e:
-            logger.error(f"Failed to convert uploaded audio to WAV: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to process audio file format: {str(e)}"
-            )
-            
-        # 3. Predict Voice Emotions
-        voice_emotions = speech_emotion_service.predict_emotion(temp_file_path)
+        ml_result = await hf_client.analyze_audio(
+            file_bytes=content,
+            filename=file.filename,
+            content_type=file.content_type or "audio/webm"
+        )
         
-        # 4. Transcribe Audio
-        stt_result = speech_to_text_service.transcribe(temp_file_path)
-        transcript = stt_result["transcript"]
-        segments = stt_result["segments"]
-        duration = stt_result["duration"]
+        transcript = ml_result.get("transcript", "")
+        speech_state = ml_result.get("speech_state", "SPEECH_DETECTED")
+        text_state = ml_result.get("text_state", "TEXT_EMOTIONS_AVAILABLE")
+        voice_emotions = ml_result.get("voice_emotions", {})
+        text_emotions = ml_result.get("text_emotions", {})
+        text_feats = ml_result.get("text_features", {})
+        acoustic_feats = ml_result.get("acoustic_features", {})
+        vad_metrics = ml_result.get("vad_metrics", {})
         
-        # 5. Extract Conversational Features
-        text_feats = conversation_features_service.extract_text_features(transcript)
-        acoustic_feats = conversation_features_service.extract_acoustic_features(temp_file_path)
-        vad_metrics = conversation_features_service.extract_vad_metrics(segments, duration)
-        speech_state = vad_metrics["speech_state"]
-        
-        # 6. Validate Transcript for Text Emotion Recognition
-        clean_text_check = re.sub(r"[^\w\s]", "", transcript).strip()
-        is_text_valid = len(clean_text_check) > 0
-        
-        if is_text_valid:
-            text_emotions = text_emotion_service.predict_emotion(transcript)
-            text_state = "TEXT_EMOTIONS_AVAILABLE"
-        else:
-            text_emotions = "UNAVAILABLE"
-            text_state = "UNAVAILABLE (Silence/Punctuation Only)"
-            
-        # 7. Calculate Distress Fusion Score
+        # Calculate Distress Fusion Score using existing clinical scorer
         fusion = distress_scorer_service.calculate_score(
             voice_emotions=voice_emotions,
             text_emotions=text_emotions,
             text_features=text_feats,
             acoustic_features=acoustic_feats,
             vad_metrics=vad_metrics,
-            speech_state=speech_state
+            speech_state=speech_state,
+            voice_available=True
         )
         
-        # 8. Consolidate conversational features (joining flat dicts)
+        # Consolidate conversational features
         conv_features = {
             **text_feats,
             **acoustic_feats,
@@ -219,7 +155,6 @@ async def analyze_audio(file: UploadFile = File(...)):
         }
         
     except HTTPException as he:
-        # Re-raise user validation errors
         raise he
     except Exception as e:
         logger.error(f"Failed to process distress analysis: {e}", exc_info=True)
@@ -227,14 +162,6 @@ async def analyze_audio(file: UploadFile = File(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during multimodal analysis: {str(e)}"
         )
-    finally:
-        # 9. Always delete temporary files
-        for p in (temp_upload_path, temp_file_path):
-            if p and os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception as e:
-                    logger.warning(f"Could not remove temporary file {p}: {e}")
 
 class LoginRequest(BaseModel):
     email: str
@@ -346,13 +273,9 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             detail="Either audio file or text message must be provided."
         )
 
-    temp_upload_path = None
-    temp_file_path = None
-    
     try:
         if file is not None:
-            # VOICE TURN: Run normal audio processing pipeline
-            # Validate file metadata
+            # VOICE TURN: Delegate audio processing pipeline to Hugging Face ML service
             if not file.filename:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -366,56 +289,33 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
                     detail=f"Unsupported file format. Supported extensions: {', '.join(allowed_extensions)}"
                 )
                 
-            # Create temporary file for upload
-            temp_upload = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-            temp_upload_path = temp_upload.name
-            
-            # Create temporary file for processed WAV
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            temp_file_path = temp_file.name
-            temp_file.close()
-            
-            # Save stream to temporary path
-            shutil.copyfileobj(file.file, temp_upload)
-            temp_upload.close()
-            
-            # Validate that the file is not empty (size check)
-            if os.path.getsize(temp_upload_path) == 0:
+            content = await file.read()
+            if len(content) == 0:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="The uploaded audio file is empty (0 bytes)."
                 )
                 
-            # Convert audio to standard WAV format
-            try:
-                convert_to_wav(temp_upload_path, temp_file_path)
-            except Exception as e:
-                logger.error(f"Failed to convert uploaded audio to WAV: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Failed to process audio file format: {str(e)}"
-                )
-                
-            # 3. Predict Voice Emotions
-            voice_emotions = speech_emotion_service.predict_emotion(temp_file_path)
+            ml_result = await hf_client.analyze_audio(
+                file_bytes=content,
+                filename=file.filename,
+                content_type=file.content_type or "audio/webm"
+            )
             
-            # 4. Transcribe Audio
-            stt_result = speech_to_text_service.transcribe(temp_file_path)
-            transcript = stt_result["transcript"]
-            segments = stt_result["segments"]
-            duration = stt_result["duration"]
-            
-            # 5. Extract Conversational Features
-            text_feats = conversation_features_service.extract_text_features(transcript)
-            acoustic_feats = conversation_features_service.extract_acoustic_features(temp_file_path)
-            vad_metrics = conversation_features_service.extract_vad_metrics(segments, duration)
-            speech_state = vad_metrics["speech_state"]
+            transcript = ml_result.get("transcript", "")
+            speech_state = ml_result.get("speech_state", "SPEECH_DETECTED")
+            text_state = ml_result.get("text_state", "TEXT_EMOTIONS_AVAILABLE")
+            voice_emotions = ml_result.get("voice_emotions", {})
+            text_emotions = ml_result.get("text_emotions", {})
+            text_feats = ml_result.get("text_features", {})
+            acoustic_feats = ml_result.get("acoustic_features", {})
+            vad_metrics = ml_result.get("vad_metrics", {})
         else:
             # TEXT TURN: Run text-only pipeline using the text_analysis service (or direct text prediction)
             transcript = message
             
-            # Predict Text Emotions via local DistilRoBERTa
-            text_emotions = text_emotion_service.predict_emotion(transcript)
+            # Predict Text Emotions via Hugging Face microservice
+            text_emotions = await text_emotion_service.predict_emotion_async(transcript)
             text_state = "TEXT_EMOTIONS_AVAILABLE"
             
             # Call the existing text_analysis.py to analyze the text signal (using Groq)
@@ -432,18 +332,6 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             acoustic_feats = None
             vad_metrics = None
             speech_state = "NO_SPEECH_DETECTED"
-            
-        # 6. Validate Transcript for Text Emotion Recognition (only for voice turn, text turn already computed)
-        if file is not None:
-            clean_text_check = re.sub(r"[^\w\s]", "", transcript).strip()
-            is_text_valid = len(clean_text_check) > 0
-            
-            if is_text_valid:
-                text_emotions = text_emotion_service.predict_emotion(transcript)
-                text_state = "TEXT_EMOTIONS_AVAILABLE"
-            else:
-                text_emotions = "UNAVAILABLE"
-                text_state = "UNAVAILABLE (Silence/Punctuation Only)"
             
         # 7. Calculate Distress Fusion Score
         fusion = distress_scorer_service.calculate_score(
@@ -543,14 +431,6 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during response generation: {str(e)}"
         )
-    finally:
-        # 11. Always delete temporary files
-        for p in (temp_upload_path, temp_file_path):
-            if p and os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception as e:
-                    logger.warning(f"Could not remove temporary file {p}: {e}")
 
 @app.post("/api/conversation/end", response_model=SessionEndResponse, status_code=status.HTTP_200_OK)
 def end_conversation(session_id: str = Form(...)):
@@ -1760,4 +1640,4 @@ def get_user_resources():
         logger.error(f"Failed to get user resources: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-
+

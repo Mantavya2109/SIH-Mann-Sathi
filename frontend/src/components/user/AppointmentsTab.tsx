@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getApiBaseUrl } from "../../utils/api";
 
 interface Appointment {
   id: string;
@@ -40,7 +41,7 @@ export default function AppointmentsTab({ user, onNavigate }: Props) {
   async function loadAppointments() {
     try {
       setLoading(true);
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/user/${user.id}/appointments`);
       if (res.ok) {
         const data = await res.json();
@@ -58,7 +59,7 @@ export default function AppointmentsTab({ user, onNavigate }: Props) {
     if (!rescheduleAppt) return;
     try {
       setRescheduleLoading(true);
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(
         `${baseUrl}/api/user/${user.id}/appointments/${rescheduleAppt.id}/reschedule`,
         {

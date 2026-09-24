@@ -190,11 +190,11 @@ class DistressScorerService:
         filler_penalty = min(1.0, text_features.get("filler_count", 0) * 0.25)
         uncertainty_penalty = min(1.0, text_features.get("uncertainty_count", 0) * 0.33)
         
-        total_dur = vad_metrics["total_duration"] if vad_metrics else 0.0
-        pause_dur = vad_metrics["pause_duration"] if vad_metrics else 0.0
+        total_dur = vad_metrics.get("total_duration", 0.0) if vad_metrics else 0.0
+        pause_dur = vad_metrics.get("pause_duration", 0.0) if vad_metrics else 0.0
         pause_ratio = min(1.0, pause_dur / total_dur) if total_dur > 0 else 0.0
         
-        ratio = vad_metrics["speech_silence_ratio"] if vad_metrics else 100.0
+        ratio = vad_metrics.get("speech_silence_ratio", 100.0) if vad_metrics else 100.0
         ratio_penalty = max(0.0, 1.0 - (ratio / 1.5)) if ratio < 1.5 else 0.0
         
         s_conversational = (

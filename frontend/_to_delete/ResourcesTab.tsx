@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getApiBaseUrl } from "../../utils/api";
 
 interface Article {
   id: string;
@@ -50,7 +51,7 @@ export default function ResourcesTab({ user, initialExerciseId }: Props) {
     async function loadResources() {
       try {
         setLoading(true);
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBaseUrl();
         const res = await fetch(`${baseUrl}/api/user/resources`);
         if (res.ok) {
           const data = await res.json();

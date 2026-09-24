@@ -9,6 +9,7 @@ import { LAST_PAGE_KEYS, useRememberedState } from "../lib/lastPage";
 import "./victim-theme.css";
 import BrandLogo from "../components/common/BrandLogo";
 import { GlassSidebar } from "../components/interactive/GlassSidebar";
+import { getApiBaseUrl } from "../utils/api";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -76,7 +77,7 @@ export default function VictimChat({ user, onLogout }: Props) {
 
     async function startSession() {
       try {
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBaseUrl();
         const formData = new FormData();
         formData.append("user_id", user.id);
 
@@ -110,7 +111,7 @@ export default function VictimChat({ user, onLogout }: Props) {
         formData.append("session_id", sessionId);
       }
 
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/conversation/respond`, {
         method: "POST",
         body: formData,
@@ -169,7 +170,7 @@ export default function VictimChat({ user, onLogout }: Props) {
         formData.append("session_id", sessionId);
       }
 
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/api/conversation/respond`, {
         method: "POST",
         body: formData,
@@ -295,7 +296,7 @@ export default function VictimChat({ user, onLogout }: Props) {
       try {
         const formData = new FormData();
         formData.append("session_id", sessionId);
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBaseUrl();
         await fetch(`${baseUrl}/api/conversation/end`, {
           method: "POST",
           body: formData,
