@@ -1,0 +1,266 @@
+/*
+ * Counsellor dashboard — dark "night sky" theme that matches the landing page.
+ *
+ * Everything is scoped to `.ms-dash` (the dashboard root) so no other screen is
+ * affected. These rules are UNLAYERED on purpose: Tailwind v4 puts its utilities
+ * in @layer, and unlayered CSS always wins over layered CSS, so this re-maps the
+ * existing light utility classes without touching every JSX className.
+ */
+
+.ms-dash {
+  --ms-bg: #05070d;
+  --ms-card: rgba(14, 19, 31, 0.72);
+  --ms-card-strong: rgba(18, 24, 38, 0.9);
+  --ms-line: rgba(255, 255, 255, 0.08);
+  --ms-line-strong: rgba(255, 255, 255, 0.14);
+  --ms-soft: rgba(255, 255, 255, 0.035);
+  --ms-soft-2: rgba(255, 255, 255, 0.06);
+  --ms-text: #eef2f7;
+  --ms-text-2: #c9d2de;
+  --ms-text-3: #9aa5b5;
+  --ms-text-4: #737e90;
+  --ms-green: #6ee7b7;
+  --ms-teal: #5eead4;
+  color: var(--ms-text-2);
+  background: var(--ms-bg);
+  color-scheme: dark;
+}
+
+/* ---------- Surfaces ---------- */
+.ms-dash .bg-white,
+.ms-dash .bg-white\/90 {
+  background-color: var(--ms-card) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.ms-dash .bg-slate-50,
+.ms-dash .bg-slate-50\/50,
+.ms-dash .bg-\[\#f8fafc\] { background-color: var(--ms-soft); }
+.ms-dash .bg-slate-100,
+.ms-dash .bg-\[\#f1f5f9\] { background-color: var(--ms-soft-2); }
+.ms-dash .bg-slate-200 { background-color: rgba(255, 255, 255, 0.1); }
+.ms-dash .bg-slate-300 { background-color: rgba(255, 255, 255, 0.18); }
+.ms-dash .bg-\[\#f0fdfa\],
+.ms-dash .bg-teal-50,
+.ms-dash .bg-teal-50\/20,
+.ms-dash .bg-teal-50\/30,
+.ms-dash .bg-teal-50\/50 { background-color: rgba(45, 212, 191, 0.07); }
+.ms-dash .bg-teal-100 { background-color: rgba(45, 212, 191, 0.14); }
+.ms-dash .from-teal-50\/70 { --tw-gradient-from: rgba(45, 212, 191, 0.1); }
+.ms-dash .to-white { --tw-gradient-to: rgba(14, 19, 31, 0.4); }
+
+.ms-dash .bg-red-50 { background-color: rgba(239, 68, 68, 0.08); }
+.ms-dash .bg-red-100,
+.ms-dash .bg-red-200,
+.ms-dash .bg-red-200\/80 { background-color: rgba(239, 68, 68, 0.16); }
+.ms-dash .bg-rose-100 { background-color: rgba(244, 63, 94, 0.16); }
+.ms-dash .bg-green-50,
+.ms-dash .bg-emerald-50 { background-color: rgba(34, 197, 94, 0.08); }
+.ms-dash .bg-green-100,
+.ms-dash .bg-emerald-100 { background-color: rgba(34, 197, 94, 0.15); }
+.ms-dash .bg-amber-50 { background-color: rgba(245, 158, 11, 0.08); }
+.ms-dash .bg-amber-100 { background-color: rgba(245, 158, 11, 0.16); }
+.ms-dash .bg-orange-50 { background-color: rgba(249, 115, 22, 0.08); }
+.ms-dash .bg-orange-100 { background-color: rgba(249, 115, 22, 0.16); }
+.ms-dash .bg-purple-50 { background-color: rgba(168, 85, 247, 0.08); }
+.ms-dash .bg-purple-100 { background-color: rgba(168, 85, 247, 0.16); }
+.ms-dash .bg-blue-50 { background-color: rgba(59, 130, 246, 0.08); }
+.ms-dash .bg-blue-100 { background-color: rgba(59, 130, 246, 0.16); }
+
+/* ---------- Text ---------- */
+.ms-dash .text-slate-950,
+.ms-dash .text-slate-900,
+.ms-dash .text-slate-800,
+.ms-dash .text-\[\#0f172a\] { color: var(--ms-text); }
+.ms-dash .text-slate-700,
+.ms-dash .text-\[\#475569\] { color: var(--ms-text-2); }
+.ms-dash .text-slate-600 { color: #b3bdca; }
+.ms-dash .text-slate-500,
+.ms-dash .text-\[\#64748b\] { color: var(--ms-text-3); }
+.ms-dash .text-slate-400 { color: var(--ms-text-4); }
+.ms-dash .text-slate-300 { color: #4b5566; }
+
+.ms-dash .text-red-600,
+.ms-dash .text-red-700 { color: #f87171; }
+.ms-dash .text-red-800,
+.ms-dash .text-red-900,
+.ms-dash .text-rose-800 { color: #fca5a5; }
+.ms-dash .text-green-600,
+.ms-dash .text-green-700,
+.ms-dash .text-emerald-800 { color: #4ade80; }
+.ms-dash .text-amber-600,
+.ms-dash .text-amber-700,
+.ms-dash .text-amber-900 { color: #fbbf24; }
+.ms-dash .text-orange-600,
+.ms-dash .text-orange-700 { color: #fb923c; }
+.ms-dash .text-teal-600,
+.ms-dash .text-teal-700,
+.ms-dash .text-teal-800,
+.ms-dash .text-teal-900,
+.ms-dash .text-\[\#0d9488\] { color: var(--ms-teal); }
+.ms-dash .text-purple-700 { color: #c4b5fd; }
+.ms-dash .text-blue-700 { color: #93c5fd; }
+
+/* ---------- Borders ---------- */
+.ms-dash .border-slate-50,
+.ms-dash .border-slate-100,
+.ms-dash .border-slate-200,
+.ms-dash .border-\[\#e2e8f0\],
+.ms-dash .border-emerald-100,
+.ms-dash .border-emerald-100\/40 { border-color: var(--ms-line); }
+.ms-dash .border-teal-100,
+.ms-dash .border-teal-200,
+.ms-dash .border-\[\#99f6e4\] { border-color: rgba(45, 212, 191, 0.25); }
+.ms-dash .border-red-200,
+.ms-dash .border-red-300 { border-color: rgba(248, 113, 113, 0.3); }
+.ms-dash .border-green-200 { border-color: rgba(74, 222, 128, 0.28); }
+.ms-dash .border-amber-200,
+.ms-dash .border-amber-300 { border-color: rgba(251, 191, 36, 0.3); }
+.ms-dash .border-orange-200 { border-color: rgba(251, 146, 60, 0.3); }
+.ms-dash .border-purple-200 { border-color: rgba(196, 181, 253, 0.28); }
+.ms-dash .border-blue-100 { border-color: rgba(147, 197, 253, 0.25); }
+
+/* ---------- Hover states ---------- */
+.ms-dash .hover\:bg-slate-50:hover,
+.ms-dash .hover\:bg-slate-50\/50:hover { background-color: rgba(255, 255, 255, 0.05); }
+.ms-dash .hover\:bg-slate-200:hover { background-color: rgba(255, 255, 255, 0.12); }
+.ms-dash .hover\:bg-teal-100:hover,
+.ms-dash .hover\:bg-\[\#e6fbf7\]:hover { background-color: rgba(45, 212, 191, 0.16); }
+.ms-dash .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.12); }
+.ms-dash .hover\:text-slate-900:hover { color: #fff; }
+
+/* ---------- Form controls ---------- */
+.ms-dash select,
+.ms-dash input,
+.ms-dash textarea {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--ms-text);
+  border-color: var(--ms-line-strong);
+}
+.ms-dash option { background: #0f1420; color: var(--ms-text); }
+
+/* ---------- Tables ---------- */
+.ms-dash table thead tr { background: rgba(255, 255, 255, 0.03) !important; }
+.ms-dash table tbody tr { transition: background-color 200ms; }
+
+/* ---------- Cards: glass + soft green edge on hover ---------- */
+.ms-dash main .rounded-3xl,
+.ms-dash main .rounded-2xl.border {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 40px -24px rgba(0, 0, 0, 0.8);
+  transition: border-color 300ms ease, box-shadow 300ms ease, transform 300ms ease;
+}
+.ms-dash main .rounded-3xl:hover {
+  border-color: rgba(110, 231, 183, 0.3);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 22px 50px -24px rgba(16, 185, 129, 0.25);
+}
+
+/* ---------- Entrance animation (replays on every tab switch) ---------- */
+@keyframes ms-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+.ms-dash main > *,
+.ms-dash main > * > * {
+  animation: ms-rise 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ms-dash main > *:nth-child(2) { animation-delay: 60ms; }
+.ms-dash main > *:nth-child(3) { animation-delay: 120ms; }
+.ms-dash main > *:nth-child(4) { animation-delay: 180ms; }
+.ms-dash main > *:nth-child(5) { animation-delay: 240ms; }
+.ms-dash main > *:nth-child(n + 6) { animation-delay: 300ms; }
+.ms-dash main > * > *:nth-child(2) { animation-delay: 90ms; }
+.ms-dash main > * > *:nth-child(3) { animation-delay: 150ms; }
+.ms-dash main > * > *:nth-child(4) { animation-delay: 210ms; }
+.ms-dash main > * > *:nth-child(5) { animation-delay: 270ms; }
+.ms-dash main > * > *:nth-child(n + 6) { animation-delay: 330ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-dash main > *,
+  .ms-dash main > * > * { animation: none; }
+  .ms-dash .ms-shimmer::after { display: none; }
+}
+
+/* ---------- Fixed ambient backdrop (stars + soft glows) ---------- */
+.ms-dash-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 600px at 8% 0%, rgba(45, 212, 191, 0.08), transparent 60%),
+    radial-gradient(800px 600px at 100% 15%, rgba(16, 185, 129, 0.07), transparent 60%),
+    radial-gradient(1000px 700px at 50% 110%, rgba(59, 130, 246, 0.07), transparent 60%),
+    var(--ms-bg);
+}
+.ms-dash-backdrop::before {
+  /* star field, drawn with tiny radial gradients so no image is needed */
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, 0.7) 50%, transparent 51%),
+    radial-gradient(1px 1px at 72% 32%, rgba(255, 255, 255, 0.6) 50%, transparent 51%),
+    radial-gradient(1px 1px at 42% 76%, rgba(255, 255, 255, 0.5) 50%, transparent 51%),
+    radial-gradient(1px 1px at 88% 82%, rgba(255, 255, 255, 0.6) 50%, transparent 51%),
+    radial-gradient(1px 1px at 26% 52%, rgba(255, 255, 255, 0.4) 50%, transparent 51%),
+    radial-gradient(1px 1px at 58% 12%, rgba(255, 255, 255, 0.5) 50%, transparent 51%);
+  background-size: 420px 420px;
+}
+
+/* Card top shimmer line for the KPI tiles */
+.ms-dash .ms-shimmer { position: relative; overflow: hidden; }
+.ms-dash .ms-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  height: 1px;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(167, 243, 208, 0.85), transparent);
+  animation: ms-sweep 4.5s ease-in-out infinite;
+}
+@keyframes ms-sweep {
+  0% { transform: translateX(-100%); opacity: 0; }
+  20% { opacity: 1; }
+  60%, 100% { transform: translateX(260%); opacity: 0; }
+}
+
+/* Scrollbar */
+.ms-dash ::-webkit-scrollbar { width: 10px; height: 10px; }
+.ms-dash ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 999px; }
+.ms-dash ::-webkit-scrollbar-track { background: transparent; }
+
+/* Section headings: bold clinical sans */
+.ms-dash main h2,
+.ms-dash main h3 {
+  font-weight: 700 !important;
+  letter-spacing: -0.015em;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  color: #f4f7f5;
+}
+.ms-dash main h4 { color: var(--ms-text); }
+/* …but keep status chips inside headings in the UI sans */
+.ms-dash main :is(h2, h3) [class*="rounded"] {
+  font-family: Inter, sans-serif !important;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+/* ---------- Typography: one health-care sans for everything ----------
+   Plus Jakarta Sans — rounded, friendly and very legible at small sizes
+   (widely used in health & care products). Inline fontFamily styles in the
+   dashboard (Manrope/Inter/serif) are overridden so the whole portal is
+   consistent; monospace data (GPS, IDs) keeps its mono face. */
+.ms-dash,
+.ms-dash *:not(.font-mono):not(code):not(pre) {
+  font-family: "Plus Jakarta Sans", Inter, system-ui, sans-serif !important;
+}
+.ms-dash { word-spacing: 0.06em; }
+.ms-dash .tabular-nums, .ms-dash table { font-variant-numeric: tabular-nums; }
+.ms-dash .font-bold { font-weight: 700; }
+.ms-dash .font-extrabold,
+.ms-dash .font-black { font-weight: 800; }
+/* Uppercase micro-labels read cleaner slightly heavier */
+.ms-dash .uppercase { font-weight: 700; }

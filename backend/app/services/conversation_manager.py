@@ -82,7 +82,8 @@ class ConversationManager:
         follow_up_question = ""
 
         # 2. State Decision Tree
-        if speech_state == "NO_SPEECH_DETECTED":
+        voice_available = fusion.get("voice_available", True)
+        if speech_state == "NO_SPEECH_DETECTED" and voice_available:
             conversation_state = "NO_SPEECH"
             response_strategy = "Acknowledge silence or lack of speech signal. Prompt gently."
             response_goal = "Encourage the person to try speaking again when ready."

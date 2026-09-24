@@ -3,9 +3,12 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client
-from text_analysis import analyze_text_signal
+from backend.app.services.text_analysis import analyze_text_signal
+from backend.app.services.recommendation import generate_recommendation
+from backend.app.services.explainability import format_explanation
+from backend.app.services.distress_scorer import apply_distress_reduction_cap, get_tier_for_score
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 VOICE_ANALYSIS_URL = "http://127.0.0.1:8000/api/analyze"
@@ -28,6 +31,22 @@ def get_case_baseline(case_id: str) -> dict:
     return {"avg_score": avg}  # already 0-100 scale — no change needed here
 
 
+def get_latest_distress_score(case_id: str):
+    """Fetch the most recent distress score for this case from Supabase (0-100 scale)."""
+    try:
+        response = supabase.table("distress_scores") \
+            .select("total_score") \
+            .eq("case_id", case_id) \
+            .order("timestamp", desc=True) \
+            .limit(1) \
+            .execute()
+        if response.data and response.data[0].get("total_score") is not None:
+            return float(response.data[0]["total_score"])
+    except Exception as e:
+        print(f"Error fetching latest score for case {case_id}: {e}")
+    return None
+
+
 def analyze_voice_checkin(audio_file_path: str) -> dict:
     """Sends an audio file to Monty's /api/analyze endpoint and returns the raw response."""
     with open(audio_file_path, "rb") as f:
@@ -35,6 +54,9 @@ def analyze_voice_checkin(audio_file_path: str) -> dict:
         response = requests.post(VOICE_ANALYSIS_URL, files=files)
         response.raise_for_status()
         return response.json()
+
+
+ALERT_THRESHOLD = 50  # score above this triggers an alert — tune as needed
 
 
 def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
@@ -48,7 +70,9 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
         raw_score = abs(checkin_result.get("sentiment_score", 0.0))
         safety_flag = False
 
-    total_score = round(raw_score * 100, 2)
+    raw_total_score = round(raw_score * 100, 2)
+    previous_score = get_latest_distress_score(case_id)
+    total_score = apply_distress_reduction_cap(previous_score, raw_total_score, max_reduction_ratio=0.08)
 
     baseline = get_case_baseline(case_id)
     deviation = total_score - baseline["avg_score"]
@@ -60,7 +84,7 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
     else:
         trend = "stable"
 
-    explanation_text = f"Score {total_score} vs baseline {round(baseline['avg_score'], 2)} ({trend})"
+    explanation_text = format_explanation(channel, checkin_result, total_score, trend)
 
     result = {
         "total_score": total_score,
@@ -72,7 +96,7 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
         "safety_flag": safety_flag
     }
 
-    # Persist to Supabase
+    # Persist the distress score
     insert_response = supabase.table("distress_scores").insert({
         "case_id": case_id,
         "total_score": total_score,
@@ -81,7 +105,26 @@ def fuse_signals(case_id: str, channel: str, checkin_result: dict) -> dict:
         "explanation_text": explanation_text
     }).execute()
 
-    result["db_row_id"] = insert_response.data[0]["id"] if insert_response.data else None
+    distress_score_id = insert_response.data[0]["id"] if insert_response.data else None
+    result["db_row_id"] = distress_score_id
+
+    # Check threshold, create alert if needed
+    if total_score >= ALERT_THRESHOLD or safety_flag:
+        distress_summary = f"Distress explanation: {explanation_text}"
+        recommendation = generate_recommendation(distress_summary)
+
+        alert_response = supabase.table("alerts").insert({
+            "case_id": case_id,
+            "distress_score_id": distress_score_id,
+            "recommendation_text": recommendation["recommendation_text"],
+            "cited_provisions": recommendation["cited_provisions"],
+            "status": "pending"
+        }).execute()
+
+        result["alert_id"] = alert_response.data[0]["id"] if alert_response.data else None
+        result["alert_created"] = True
+    else:
+        result["alert_created"] = False
 
     return result
 

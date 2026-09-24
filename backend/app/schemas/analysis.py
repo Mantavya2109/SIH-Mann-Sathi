@@ -47,6 +47,7 @@ class FusionMetrics(BaseModel):
     conversational_boost: Union[float, str]
     tier: str
     text_available: bool
+    voice_available: bool
 
 class DistressAnalysisResponse(BaseModel):
     transcript: str
@@ -85,6 +86,10 @@ class PrioritizedCase(BaseModel):
     priority: str  # "CRITICAL", "HIGH", "MEDIUM", "LOW"
     priority_score: float
     reason: str
+    trend: Optional[str] = None
+    days_since_last_checkin: Optional[float] = None
+    risk_level: Optional[str] = None
+    safety_attention: Optional[bool] = None
 
 class PrioritizationResponse(BaseModel):
     prioritized_cases: List[PrioritizedCase]
