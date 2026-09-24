@@ -1,26 +1,14 @@
 {
-    "services": {
-        "frontend": {
-            "root": "frontend/",
-            "framework": "vite"
-        },
-        "backend": {
-            "root": "backend/",
-            "entrypoint": "app/main.py"
-        }
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
     },
-    "rewrites": [
-        {
-            "source": "/api/:path*",
-            "destination": {
-                "service": "backend"
-            }
-        },
-        {
-            "source": "/(.*)",
-            "destination": {
-                "service": "frontend"
-            }
-        }
-    ]
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
