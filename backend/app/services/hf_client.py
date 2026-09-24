@@ -171,26 +171,30 @@ class HFInferenceClient:
             except Exception as e:
                 logger.warning(f"Custom container text emotion failed: {e}. Falling back to HF serverless.")
 
-        # Hugging Face Serverless Inference endpoint
-        url = "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
+        # Hugging Face Serverless Inference endpoint (try router first, then api-inference)
+        hf_urls = [
+            "https://router.huggingface.co/hf-inference/models/j-hartmann/emotion-english-distilroberta-base",
+            "https://api-inference.huggingface.co/models/j-hartmann/emotion-english-distilroberta-base"
+        ]
         headers = self._get_headers()
 
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(url, headers=headers, json={"inputs": text})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    # format: [[{"label": "sadness", "score": 0.8}, ...]]
-                    items = data[0] if isinstance(data, list) and data and isinstance(data[0], list) else data
-                    results = {}
-                    for item in (items if isinstance(items, list) else []):
-                        lbl = item.get("label", "").capitalize()
-                        results[lbl] = float(item.get("score", 0.0))
-                    
-                    if results:
-                        return results
-        except Exception as e:
-            logger.warning(f"HF Serverless text emotion API error: {e}")
+        for url in hf_urls:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(url, headers=headers, json={"inputs": text})
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # format: [[{"label": "sadness", "score": 0.8}, ...]]
+                        items = data[0] if isinstance(data, list) and data and isinstance(data[0], list) else data
+                        results = {}
+                        for item in (items if isinstance(items, list) else []):
+                            lbl = item.get("label", "").capitalize()
+                            results[lbl] = float(item.get("score", 0.0))
+                        
+                        if results:
+                            return results
+            except Exception as e:
+                logger.debug(f"HF Serverless endpoint {url} attempt: {e}")
 
         # Safe neutral fallback
         return {
