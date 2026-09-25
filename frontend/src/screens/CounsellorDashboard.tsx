@@ -60,7 +60,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [selectedCaseDetails, setSelectedCaseDetails] = useState<any>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showExplain, setShowExplain] = useState(false);
   const [stageFilter, setStageFilter] = useState<"active" | "all">("active");
@@ -796,12 +796,12 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 { label: "Moderate Risk", value: moderateRiskCount, accent: "#fbbf24", icon: "alert" as const },
                 { label: "Active Alerts", value: activeAlerts.length, accent: "#2dd4bf", icon: "bell" as const },
               ].map((card, i) => (
-                <KpiCard key={card.label} {...card} index={i} />
+                <KpiCard key={card.label} {...card} index={i} loading={loading && cases.length === 0} />
               ))}
             </div>
 
             {/* Selected case — three-column signal overview */}
-            {selectedCaseId && (
+            {selectedCaseId ? (
               <div className="rounded-3xl p-5 sm:p-6 border border-emerald-100/40 bg-white shadow-sm space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
@@ -830,7 +830,39 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 </div>
                 {caseSignalsGrid}
               </div>
-            )}
+            ) : loading ? (
+              <div className="rounded-3xl p-5 sm:p-6 border border-emerald-100/40 bg-white shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-1.5">
+                    <div className="h-5 w-48 bg-slate-200 animate-pulse rounded" />
+                    <div className="h-3 w-64 bg-slate-100 animate-pulse rounded" />
+                  </div>
+                  <div className="h-8 w-36 bg-slate-100 animate-pulse rounded-xl" />
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-4 items-stretch">
+                  <div className="order-2 lg:order-1 flex flex-col gap-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 px-1">Conversational signals</div>
+                    <SignalTile label="Text Analysis" value="" loading={true} />
+                    <SignalTile label="Voice Analysis" value="" loading={true} />
+                    <div className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-2 animate-pulse">
+                      <div className="h-3 w-24 bg-slate-200 rounded" />
+                      <div className="h-4 w-full bg-slate-100 rounded" />
+                      <div className="h-4 w-3/4 bg-slate-100 rounded" />
+                    </div>
+                  </div>
+                  <div className="order-1 lg:order-2">
+                    <FusionScorePanel score="0" tier="LOW" trend="Stable" loading={true} />
+                  </div>
+                  <div className="order-3 flex flex-col gap-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 px-1">Physiological signals</div>
+                    <SignalTile label="Heart Rate" value="" loading={true} />
+                    <SignalTile label="Blood Oxygen" value="" loading={true} />
+                    <SignalTile label="Sleep" value="" loading={true} />
+                    <SignalTile label="Skin Conductance" value="" loading={true} />
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {/* CASES GRID */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -877,11 +909,24 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                     </thead>
                     <tbody>
                       {cases.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-[#64748b] text-sm">
-                            No patient cases found. Click Sync to fetch database.
-                          </td>
-                        </tr>
+                        loading ? (
+                          [1, 2, 3].map((n) => (
+                            <tr key={n} className="animate-pulse" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              <td className="px-4 py-4"><div className="h-4 w-28 bg-slate-200 rounded mb-1" /><div className="h-3 w-40 bg-slate-100 rounded" /></td>
+                              <td className="px-4 py-4"><div className="h-4 w-12 bg-slate-200 rounded mb-1" /><div className="h-3 w-16 bg-slate-100 rounded" /></td>
+                              <td className="px-4 py-4"><div className="h-4 w-14 bg-slate-200 rounded" /></td>
+                              <td className="px-4 py-4"><div className="h-5 w-20 bg-slate-200 rounded-full" /></td>
+                              <td className="px-4 py-4"><div className="h-3 w-20 bg-slate-200 rounded" /></td>
+                              <td className="px-4 py-4"><div className="h-5 w-16 bg-slate-200 rounded-full" /></td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-8 text-center text-[#64748b] text-sm">
+                              No patient cases found. Click Sync to fetch database.
+                            </td>
+                          </tr>
+                        )
                       ) : (
                         cases.filter(c => stageFilter === "all" || c.stage === "active").map((c: any) => {
                           const isSelected = selectedCaseId === c.case_id;
@@ -2544,6 +2589,7 @@ function SignalTile({
   statusClass = "text-slate-600",
   badge,
   muted = false,
+  loading = false,
 }: {
   label: string;
   value: string;
@@ -2552,16 +2598,25 @@ function SignalTile({
   statusClass?: string;
   badge?: "live" | "demo";
   muted?: boolean;
+  loading?: boolean;
 }) {
   return (
     <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between gap-3">
       <div className="min-w-0">
         <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{label}</div>
-        {status && <div className={`font-bold text-xs mt-0.5 ${statusClass}`}>{status}</div>}
+        {loading ? (
+          <div className="h-3 w-16 bg-slate-200 animate-pulse rounded mt-1" />
+        ) : (
+          status && <div className={`font-bold text-xs mt-0.5 ${statusClass}`}>{status}</div>
+        )}
         {sub && <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>}
       </div>
       <div className="text-right shrink-0">
-        <div className={`font-extrabold text-lg sm:text-xl tracking-tight ${muted ? "text-slate-300" : "text-slate-800"}`}>{value}</div>
+        {loading ? (
+          <div className="h-6 w-16 bg-slate-200 animate-pulse rounded" />
+        ) : (
+          <div className={`font-extrabold text-lg sm:text-xl tracking-tight ${muted ? "text-slate-300" : "text-slate-800"}`}>{value}</div>
+        )}
         {badge === "live" && <div className="text-[9px] font-bold uppercase text-green-600">● Live</div>}
         {badge === "demo" && <div className="text-[9px] font-bold uppercase text-slate-400">Demo</div>}
       </div>
@@ -2578,7 +2633,7 @@ const TIER_STYLES: Record<string, { ring: string; text: string; chip: string }> 
 };
 
 /** Large circular fusion-score gauge with distress tier and trend underneath. */
-function FusionScorePanel({ score, tier, trend }: { score: string | number; tier: string; trend: string }) {
+function FusionScorePanel({ score, tier, trend, loading = false }: { score: string | number; tier: string; trend: string; loading?: boolean }) {
   const pct = Math.max(0, Math.min(100, parseFloat(String(score)) || 0));
   const tierKey = String(tier).toUpperCase();
   const style = TIER_STYLES[tierKey] || TIER_STYLES.MODERATE;
@@ -2596,6 +2651,26 @@ function FusionScorePanel({ score, tier, trend }: { score: string | number; tier
   const circumference = 2 * Math.PI * r;
   const arc = circumference * 0.75;
   const filled = arc * (pct / 100);
+
+  if (loading) {
+    return (
+      <div className="h-full rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/70 to-white p-6 flex flex-col items-center justify-center text-center">
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-teal-700">Fusion Score</div>
+        <div className="relative mt-3 w-[200px] h-[200px] sm:w-[240px] sm:h-[240px] flex items-center justify-center">
+          <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full border-4 border-dashed border-teal-300 animate-spin" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="h-10 w-24 bg-teal-100 rounded-lg animate-pulse" />
+            <div className="mt-2 text-[11px] text-teal-600 font-medium animate-pulse">Syncing score...</div>
+          </div>
+        </div>
+        <div className="mt-2 flex items-center justify-center gap-2">
+          <div className="h-6 w-16 bg-teal-100/70 rounded-full animate-pulse" />
+          <div className="h-6 w-20 bg-slate-200/70 rounded-full animate-pulse" />
+        </div>
+        <p className="mt-3 text-[11px] text-slate-400 max-w-[260px]">Loading multimodal distress telemetry...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/70 to-white p-6 flex flex-col items-center justify-center text-center">
@@ -2637,9 +2712,24 @@ const KPI_ICONS = {
   bell: <path strokeLinecap="round" strokeLinejoin="round" d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0" />,
 };
 
-function KpiCard({ label, value, accent, icon, index }: { label: string; value: number; accent: string; icon: keyof typeof KPI_ICONS; index: number }) {
+function KpiCard({
+  label,
+  value,
+  accent,
+  icon,
+  index,
+  loading = false,
+}: {
+  label: string;
+  value: number;
+  accent: string;
+  icon: keyof typeof KPI_ICONS;
+  index: number;
+  loading?: boolean;
+}) {
   const [shown, setShown] = useState(0);
   useEffect(() => {
+    if (loading) return;
     const controls = animate(0, value, {
       duration: 1.2,
       delay: 0.15 + index * 0.08,
@@ -2647,7 +2737,7 @@ function KpiCard({ label, value, accent, icon, index }: { label: string; value: 
       onUpdate: (v) => setShown(Math.round(v)),
     });
     return () => controls.stop();
-  }, [value, index]);
+  }, [value, index, loading]);
 
   return (
     <motion.div
@@ -2664,9 +2754,13 @@ function KpiCard({ label, value, accent, icon, index }: { label: string; value: 
           </svg>
         </span>
       </div>
-      <p className="mt-3 text-[40px] font-extrabold leading-none tracking-[-0.03em] tabular-nums" style={{ color: accent }}>
-        {shown}
-      </p>
+      {loading ? (
+        <div className="mt-3 h-10 w-20 bg-white/20 animate-pulse rounded-lg" />
+      ) : (
+        <p className="mt-3 text-[40px] font-extrabold leading-none tracking-[-0.03em] tabular-nums" style={{ color: accent }}>
+          {shown}
+        </p>
+      )}
     </motion.div>
   );
 }
