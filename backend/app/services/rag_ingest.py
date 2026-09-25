@@ -5,16 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
-from supabase import create_client
-
-pdfplumber = None
-try:
-    import pdfplumber
-except ImportError:
-    print("Warning: pdfplumber is not installed. PDF text extraction will be offline.")
-
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+from backend.app.utils.supabase_client import supabase
 
 model = None
 try:

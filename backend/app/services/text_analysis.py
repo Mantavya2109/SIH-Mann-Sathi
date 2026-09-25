@@ -10,11 +10,15 @@ env_path = Path(__file__).resolve().parents[3] / ".env"
 load_dotenv(dotenv_path=env_path)
 
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+_groq_client = None
 
-# models = client.models.list()
-# for m in models.data:
-#     print(m.id)
+def get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key:
+            _groq_client = Groq(api_key=groq_key)
+    return _groq_client
 def analyze_text_signal(message: str) -> dict:
     if not message or not message.strip():
         return {
@@ -39,6 +43,16 @@ psychological distress. Respond ONLY with valid JSON in this exact format:
 
 Message: "{message}" """
 
+    client = get_groq_client()
+    if not client:
+        return {
+            "sentiment_score": 0.0,
+            "emotion_category": "neutral",
+            "emotion_intensity": "low",
+            "distress_indicators": [],
+            "language": "en",
+            "note": "groq_client_unavailable"
+        }
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     response = client.chat.completions.create(
         model=model,
