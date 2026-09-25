@@ -11,7 +11,7 @@ from backend.app.services.speech_emotion import speech_emotion_service
 from backend.app.services.speech_to_text import speech_to_text_service
 from backend.app.services.text_emotion import text_emotion_service
 from backend.app.services.conversation_features import conversation_features_service
-from backend.app.services.distress_scorer import distress_scorer_service
+from backend.app.services.distress_scorer import distress_scorer_service, get_tier_for_score
 from backend.app.services.conversation_manager import conversation_manager
 from backend.app.services.response_generator import response_generator
 from backend.app.services.conversation_session import conversation_session_manager
@@ -250,32 +250,45 @@ def start_conversation(user_id: Optional[str] = Form(None)):
     }
 
 @app.post("/api/conversation/respond", response_model=ConversationResponse, status_code=status.HTTP_200_OK)
-async def get_conversation_response(file: UploadFile = File(None), message: str = Form(None), session_id: str = Form(None)):
+async def get_conversation_response(
+    file: UploadFile = File(None),
+    message: str = Form(None),
+    session_id: str = Form(None),
+    biosignal_data: str = Form(None)
+):
     """
     Multimodal Mental Health Response Generation Endpoint.
-    Accepts either an UploadFile audio file or a text message, and an optional session_id,
-    runs the appropriate analysis pipeline, and returns the response plus session/turn data.
+    Accepts an UploadFile audio file or a text message, and optional session_id and biosignal_data.
+    Executes full per-turn multimodal analysis, stores immediately to database under ROHAN-CASE-2,
+    and returns AI response and session metadata.
     """
-    # If session_id is provided, check if it exists
+    import json
+    # Resolve conversation session (always mapped to ROHAN-CASE-2)
     session = None
-    text_signal = None
     if session_id:
         session = conversation_session_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Conversation session not found: {session_id}"
-            )
-            
+    if not session:
+        session_id = conversation_session_manager.create_session()
+        session = conversation_session_manager.get_session(session_id)
+
     if file is None and message is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Either audio file or text message must be provided."
         )
 
+    # Parse optional biosignal data if provided
+    parsed_bio = None
+    if biosignal_data:
+        try:
+            parsed_bio = json.loads(biosignal_data) if isinstance(biosignal_data, str) else biosignal_data
+        except Exception as bio_err:
+            logger.warning(f"Failed to parse biosignal JSON data: {bio_err}")
+
     try:
+        text_signal = {}
         if file is not None:
-            # VOICE TURN: Delegate audio processing pipeline to Hugging Face ML service
+            # VOICE TURN: Delegate audio processing pipeline to ML inference / Whisper
             if not file.filename:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -303,6 +316,11 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             )
             
             transcript = ml_result.get("transcript", "")
+            clean_t = re.sub(r"[^\w\s]", "", transcript or "").strip()
+            if not clean_t and message and message.strip():
+                transcript = message.strip()
+                clean_t = re.sub(r"[^\w\s]", "", transcript).strip()
+                
             speech_state = ml_result.get("speech_state", "SPEECH_DETECTED")
             text_state = ml_result.get("text_state", "TEXT_EMOTIONS_AVAILABLE")
             voice_emotions = ml_result.get("voice_emotions", {})
@@ -310,18 +328,28 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             text_feats = ml_result.get("text_features", {})
             acoustic_feats = ml_result.get("acoustic_features", {})
             vad_metrics = ml_result.get("vad_metrics", {})
+            
+            # If transcript is available, ensure text emotions and text signals are extracted
+            if clean_t:
+                if not text_emotions or text_emotions == "UNAVAILABLE":
+                    text_emotions = await text_emotion_service.predict_emotion_async(transcript)
+                try:
+                    text_signal = analyze_text_signal(transcript)
+                    text_feats["text_analysis_output"] = text_signal
+                except Exception as e:
+                    logger.warning(f"Failed to extract text signal from voice transcript: {e}")
         else:
-            # TEXT TURN: Run text-only pipeline using the text_analysis service (or direct text prediction)
+            # TEXT TURN: Run text-only pipeline using text emotion service + Groq analysis
             transcript = message
             
             # Predict Text Emotions via Hugging Face microservice
             text_emotions = await text_emotion_service.predict_emotion_async(transcript)
             text_state = "TEXT_EMOTIONS_AVAILABLE"
             
-            # Call the existing text_analysis.py to analyze the text signal (using Groq)
+            # Call analyze_text_signal (Groq) for sentiment, emotion category, and distress indicators
             try:
                 text_signal = analyze_text_signal(transcript)
-                logger.info(f"text_analysis.py signal: {text_signal}")
+                logger.info(f"Text analysis signal: {text_signal}")
             except Exception as e:
                 logger.error(f"Failed to run text_analysis: {e}")
                 text_signal = {}
@@ -329,11 +357,12 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             # Voice/Acoustic details are None for text turn
             voice_emotions = None
             text_feats = conversation_features_service.extract_text_features(transcript)
+            text_feats["text_analysis_output"] = text_signal
             acoustic_feats = None
             vad_metrics = None
             speech_state = "NO_SPEECH_DETECTED"
             
-        # 7. Calculate Distress Fusion Score
+        # Calculate Multimodal Distress Fusion Score (Text + Voice + Biosignal)
         fusion = distress_scorer_service.calculate_score(
             voice_emotions=voice_emotions,
             text_emotions=text_emotions,
@@ -341,31 +370,37 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
             acoustic_features=acoustic_feats,
             vad_metrics=vad_metrics,
             speech_state=speech_state,
-            voice_available=(file is not None)
+            voice_available=(file is not None),
+            biosignal_data=parsed_bio,
+            biosignal_available=(parsed_bio is not None)
         )
         
-        # Assemble pipeline analysis result dictionary for manager consumption
+        # Assemble pipeline analysis result dictionary for conversation manager & response generator
         analysis_result = {
             "transcript": transcript,
             "speech_state": speech_state,
             "text_state": text_state,
-            "fusion_metrics": fusion
+            "fusion_metrics": fusion,
+            "text_analysis_output": text_signal,
+            "text_emotions": text_emotions,
+            "voice_emotions": voice_emotions,
+            "acoustic_features": acoustic_feats,
+            "vad_metrics": vad_metrics,
+            "biosignal_data": parsed_bio
         }
-        if file is None:
-            analysis_result["text_analysis_output"] = text_signal
         
-        # 8. Run Conversation Manager State Decision Logic with optional session history
+        # Run Conversation Manager State Decision Logic with session history
         history_context = session.history if session else None
         manager_decision = conversation_manager.determine_state_and_response(analysis_result, history_context)
         
-        # 9. Run Response Generator logic
+        # Run Response Generator logic
         final_response = response_generator.generate_response(
             manager_decision,
             analysis_result,
             history_context
         )
         
-        # 10. Store turn in session if session exists
+        # Store turn in session and write directly to Supabase
         turn_number = None
         if session:
             internal_analysis = {
@@ -381,7 +416,10 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
                 "fusion_metrics": fusion,
                 "conversation_state": final_response["conversation_state"],
                 "safety_attention": final_response["safety_attention"],
-                "text_analysis_output": text_signal if file is None else None
+                "text_analysis_output": text_signal,
+                "biosignal_data": parsed_bio,
+                "response_text": final_response["response_text"],
+                "follow_up_question": final_response.get("follow_up_question", "")
             }
             
             # Call RAG recommender if distress is high or safety flag is triggered
@@ -423,7 +461,6 @@ async def get_conversation_response(file: UploadFile = File(None), message: str 
         }
         
     except HTTPException as he:
-        # Re-raise user validation errors
         raise he
     except Exception as e:
         logger.error(f"Failed to generate conversation response: {e}", exc_info=True)
@@ -677,13 +714,14 @@ def get_counsellor_cases(debug: bool = False):
                 score_res = supabase.table("distress_scores") \
                     .select("*") \
                     .eq("case_id", case_id) \
-                    .order("timestamp", desc=True) \
-                    .limit(1) \
                     .execute()
-                if score_res.data:
-                    latest_score = score_res.data[0].get("total_score", 0.0) or 0.0
-                    trend = score_res.data[0].get("trend", "stable")
-                    sub_an = ((score_res.data[0].get("sub_scores") or {}).get("raw_analysis") or {}).get("fusion_metrics") or {}
+                scores_all = score_res.data or []
+                if scores_all:
+                    scores_all.sort(key=lambda r: (parse_to_utc(r.get("timestamp") or r.get("created_at")).timestamp() if parse_to_utc(r.get("timestamp") or r.get("created_at")) else 0.0), reverse=True)
+                    latest_row = scores_all[0]
+                    latest_score = latest_row.get("total_score", 0.0) or 0.0
+                    trend = latest_row.get("trend", "stable")
+                    sub_an = ((latest_row.get("sub_scores") or {}).get("raw_analysis") or {}).get("fusion_metrics") or {}
                     tier = sub_an.get("tier")
                     if not tier:
                         s_val = latest_score / 100.0
@@ -700,11 +738,11 @@ def get_counsellor_cases(debug: bool = False):
                 checkin_res = supabase.table("check_ins") \
                     .select("*") \
                     .eq("case_id", case_id) \
-                    .order("timestamp", desc=True) \
-                    .limit(1) \
                     .execute()
-                if checkin_res.data:
-                    last_checkin = checkin_res.data[0]
+                checkins_all = checkin_res.data or []
+                if checkins_all:
+                    checkins_all.sort(key=lambda r: (parse_to_utc(r.get("timestamp") or r.get("created_at")).timestamp() if parse_to_utc(r.get("timestamp") or r.get("created_at")) else 0.0), reverse=True)
+                    last_checkin = checkins_all[0]
                     ts_str = last_checkin.get("timestamp")
                     last_checkin_timestamp = format_utc_iso(ts_str) or ""
                     if ts_str:
@@ -721,11 +759,13 @@ def get_counsellor_cases(debug: bool = False):
                 debug_logs.append(f"Failed query for case {case_id}: {score_ex}")
                 
             results.append({
+                "id": case_id,
                 "case_id": case_id,
                 "nhaa_ref": nhaa_ref,
                 "enrollment_date": format_utc_iso(case.get("enrollment_date")) or "",
                 "stage": case.get("stage", "active"),
                 "user": user_info,
+                "distress_score": latest_score,
                 "latest_distress_score": latest_score,
                 "risk_tier": risk_tier,
                 "trend": trend,
@@ -856,17 +896,19 @@ def get_case_details(case_id: str):
         active_alert_data = None
 
         try:
-            checkins_res = supabase.table("check_ins").select("*").eq("case_id", case_id).order("timestamp", desc=True).limit(100).execute()
+            checkins_res = supabase.table("check_ins").select("*").eq("case_id", case_id).execute()
             checkins_data = checkins_res.data or []
+            if checkins_data:
+                checkins_data.sort(key=lambda r: (parse_to_utc(r.get("timestamp") or r.get("created_at")).timestamp() if parse_to_utc(r.get("timestamp") or r.get("created_at")) else 0.0), reverse=True)
             checkins_count = len(checkins_data)
             
             score_res = supabase.table("distress_scores") \
                 .select("*") \
                 .eq("case_id", case_id) \
-                .order("timestamp", desc=True) \
-                .limit(100) \
                 .execute()
             scores_data = score_res.data or []
+            if scores_data:
+                scores_data.sort(key=lambda r: (parse_to_utc(r.get("timestamp") or r.get("created_at")).timestamp() if parse_to_utc(r.get("timestamp") or r.get("created_at")) else 0.0), reverse=True)
             
             # Check active alerts for this case
             alert_res = supabase.table("alerts").select("*").eq("case_id", case_id).eq("status", "active").order("created_at", desc=True).limit(1).execute()
@@ -877,7 +919,16 @@ def get_case_details(case_id: str):
 
             if scores_data:
                 latest_score_row = scores_data[0]
-                latest_checkin_row = checkins_data[0] if checkins_data else {}
+                latest_score_ts = (parse_to_utc(latest_score_row.get("timestamp") or latest_score_row.get("created_at")).timestamp() if parse_to_utc(latest_score_row.get("timestamp") or latest_score_row.get("created_at")) else 0.0)
+
+                # Match corresponding checkin from the same interaction
+                matched_checkin = None
+                if checkins_data:
+                    matched_checkin = min(checkins_data, key=lambda c: abs((parse_to_utc(c.get("timestamp") or c.get("created_at")).timestamp() if parse_to_utc(c.get("timestamp") or c.get("created_at")) else 0.0) - latest_score_ts))
+                    if abs((parse_to_utc(matched_checkin.get("timestamp") or matched_checkin.get("created_at")).timestamp() if parse_to_utc(matched_checkin.get("timestamp") or matched_checkin.get("created_at")) else 0.0) - latest_score_ts) > 60:
+                        matched_checkin = checkins_data[0]
+
+                latest_checkin_row = matched_checkin or {}
 
                 latest_score = latest_score_row.get("total_score", 0.0) or 0.0
                 trend = latest_score_row.get("trend", "stable")
@@ -955,8 +1006,9 @@ def get_case_details(case_id: str):
                 }
 
                 # Calculate Today and Yesterday in IST
-                now_ist_key = get_ist_date_key(utc_now())
-                yesterday_ist_key = get_ist_date_key(utc_now() - timedelta(days=1))
+                now_ist = to_ist(utc_now())
+                now_ist_key = now_ist.strftime("%Y-%m-%d")
+                yesterday_ist_key = (now_ist - timedelta(days=1)).strftime("%Y-%m-%d")
                 
                 today_scores = []
                 today_has_voice = False
@@ -980,9 +1032,10 @@ def get_case_details(case_id: str):
                         return None
                     avg_s = round(sum(scores_list) / len(scores_list))
                     lat_s = round(scores_list[0])
-                    d_tier = "SEVERE" if lat_s >= 75 else "HIGH" if lat_s >= 50 else "MODERATE" if lat_s >= 25 else "LOW"
+                    d_tier = distress_scorer_service.get_tier(lat_s / 100.0)
                     return {
                         "turns_count": len(scores_list),
+                        "check_in_count": len(scores_list),
                         "avg_distress_score": avg_s,
                         "latest_distress_score": lat_s,
                         "risk_tier": d_tier,
@@ -993,6 +1046,28 @@ def get_case_details(case_id: str):
 
                 today_summary = build_day_summary(today_scores, today_has_voice, now_ist_key)
                 yesterday_summary = build_day_summary(yesterday_scores, yesterday_has_voice, yesterday_ist_key)
+
+                if today_summary and yesterday_summary:
+                    diff = today_summary["latest_distress_score"] - yesterday_summary["latest_distress_score"]
+                    if diff <= -5:
+                        trend_direction = "IMPROVING"
+                    elif diff >= 5:
+                        trend_direction = "WORSENING"
+                    else:
+                        trend_direction = "STABLE"
+                elif today_summary:
+                    if len(today_scores) > 1:
+                        diff = today_scores[0] - today_scores[-1]
+                        if diff <= -5:
+                            trend_direction = "IMPROVING"
+                        elif diff >= 5:
+                            trend_direction = "WORSENING"
+                        else:
+                            trend_direction = "STABLE"
+                    else:
+                        trend_direction = "STABLE"
+                else:
+                    trend_direction = "INSUFFICIENT DATA"
 
         except Exception as ex:
             logger.warning(f"Error querying case metrics: {ex}")
@@ -1008,6 +1083,7 @@ def get_case_details(case_id: str):
                 "current_distress_percent": round(latest_score),
                 "risk_tier": risk_tier,
                 "trend": trend,
+                "trend_direction": trend_direction,
                 "total_check_ins": checkins_count,
                 "last_interaction": last_interaction,
                 "explanation_text": explanation_text,
@@ -1016,7 +1092,8 @@ def get_case_details(case_id: str):
             },
             "latest_interaction": latest_interaction,
             "today_summary": today_summary,
-            "yesterday_summary": yesterday_summary
+            "yesterday_summary": yesterday_summary,
+            "trend_direction": trend_direction
         }
     except HTTPException as he:
         raise he
@@ -1041,15 +1118,15 @@ def get_case_location(case_id: str):
         score_res = supabase.table("distress_scores") \
             .select("total_score, timestamp") \
             .eq("case_id", case_id) \
-            .order("timestamp", desc=True) \
-            .limit(1) \
             .execute()
         
         latest_score = 0.0
         last_ts = ""
         if score_res.data:
-            latest_score = float(score_res.data[0].get("total_score") or 0.0)
-            last_ts = score_res.data[0].get("timestamp") or ""
+            s_all = score_res.data
+            s_all.sort(key=lambda r: (parse_to_utc(r.get("timestamp")).timestamp() if parse_to_utc(r.get("timestamp")) else 0.0), reverse=True)
+            latest_score = float(s_all[0].get("total_score") or 0.0)
+            last_ts = s_all[0].get("timestamp") or ""
             
         is_critical = latest_score > 60.0
         
@@ -1097,7 +1174,6 @@ def get_case_location(case_id: str):
                 "is_simulated": True
             }
         else:
-            # Ananya (Visakhapatnam)
             location_data = {
                 "place_name": "Visakhapatnam, Andhra Pradesh",
                 "city": "Visakhapatnam",
@@ -1137,8 +1213,7 @@ def get_case_location(case_id: str):
 def get_case_history(case_id: str):
     """
     Return turn-by-turn history for a case, sourced from persistent Supabase
-    check_ins + distress_scores tables.  Falls back to in-memory session if
-    Supabase returns nothing (e.g. first turn not yet committed).
+    check_ins + distress_scores tables.
     """
     try:
         # ── 1. Verify case exists ──────────────────────────────────────────────
@@ -1147,31 +1222,18 @@ def get_case_history(case_id: str):
             raise HTTPException(status_code=404, detail="Case not found")
 
         # ── 2. Fetch all check_ins for this case, ordered oldest→newest ────────
-        ci_res = (
-            supabase.table("check_ins")
-            .select("*")
-            .eq("case_id", case_id)
-            .order("timestamp", desc=False)
-            .execute()
-        )
+        ci_res = supabase.table("check_ins").select("*").eq("case_id", case_id).execute()
         check_ins = ci_res.data or []
+        if check_ins:
+            check_ins.sort(key=lambda r: (parse_to_utc(r.get("timestamp") or r.get("created_at")).timestamp() if parse_to_utc(r.get("timestamp") or r.get("created_at")) else 0.0), reverse=False)
 
-        # ── 3. Fetch all distress_scores for this case (for per-turn score) ────
-        ds_res = (
-            supabase.table("distress_scores")
-            .select("*")
-            .eq("case_id", case_id)
-            .order("timestamp", desc=False)
-            .execute()
-        )
+        # ── 3. Fetch all distress_scores for this case ─────────────────────────
+        ds_res = supabase.table("distress_scores").select("*").eq("case_id", case_id).execute()
         distress_scores = ds_res.data or []
+        if distress_scores:
+            distress_scores.sort(key=lambda r: (parse_to_utc(r.get("timestamp") or r.get("created_at")).timestamp() if parse_to_utc(r.get("timestamp") or r.get("created_at")) else 0.0), reverse=False)
 
         if check_ins:
-            # ── 4. Build history list from check_ins + nearest distress score ──
-            # check_ins and distress_scores share case_id + a very close timestamp
-            # (inserted in the same request handler, seconds apart).
-            # We match each check_in to the nearest distress_score within 30 s.
-            
             # Pre-parse distress_score timestamps to unix once
             ds_parsed: list = []
             for row in distress_scores:
@@ -1183,14 +1245,13 @@ def get_case_history(case_id: str):
                     ds_parsed.append((0.0, row))
 
             history = []
-            for ci in check_ins:
-                # Convert check_in timestamp
+            for idx, ci in enumerate(check_ins):
                 ts_raw = ci.get("timestamp", "")
                 dt = parse_to_utc(ts_raw)
                 ts_unix = dt.timestamp() if dt else 0.0
                 ts_iso = format_utc_iso(dt) if dt else ""
 
-                # Find the nearest distress_score within 30 seconds
+                # Find nearest distress_score within 30 seconds
                 ds_row: dict = {}
                 if ds_parsed:
                     closest = min(ds_parsed, key=lambda x: abs(x[0] - ts_unix))
@@ -1200,21 +1261,17 @@ def get_case_history(case_id: str):
                 total_score_raw = ds_row.get("total_score", 0.0) or 0.0
                 distress_score_norm = total_score_raw / 100.0  # normalise 0-1
 
-                # Extract sub-analysis from distress_indicators (check_in field)
                 di = ci.get("distress_indicators") or {}
                 raw_analysis = (ds_row.get("sub_scores") or {}).get("raw_analysis") or {}
                 
                 text_ao = di.get("text_analysis_output") or raw_analysis.get("text_analysis_output") or {}
                 vf = ci.get("voice_features") or {}
 
-                # Voice emotions: check raw_analysis first, then check_in voice_features
                 voice_emotions = raw_analysis.get("voice_emotions") or vf.get("voice_emotions") or None
                 text_emotions = raw_analysis.get("text_emotions") or di.get("text_emotions") or None
-
-                # Conversational features: extract from raw_analysis or build from check_in voice_features
                 conv_feats = raw_analysis.get("conversational_features") or vf.get("conversational_features") or None
+                
                 if conv_feats is None and vf:
-                    # Construct from check_in voice_features / acoustic_features if available
                     af = vf.get("acoustic_features") or {}
                     cf = vf.get("conversational_features") or {}
                     if af or cf:
@@ -1226,22 +1283,21 @@ def get_case_history(case_id: str):
                             "pitch_variability_hz": af.get("pitch_variance", 0.0) or af.get("pitch_variability_hz", 0.0),
                             "energy_variability": af.get("energy_mean", 0.0) or af.get("energy_variability", 0.0),
                         }
-                elif isinstance(conv_feats, dict) and vf.get("acoustic_features"):
-                    af = vf.get("acoustic_features") or {}
-                    if "pitch_mean_hz" not in conv_feats and "pitch_mean" in af:
-                        conv_feats["pitch_mean_hz"] = af["pitch_mean"]
-                    if "pitch_variability_hz" not in conv_feats and "pitch_variance" in af:
-                        conv_feats["pitch_variability_hz"] = af["pitch_variance"]
 
-                fusion_metrics = raw_analysis.get("fusion_metrics") or {
-                    "tier": ds_row.get("risk_tier", "LOW"),
+                fusion_metrics = raw_analysis.get("fusion_metrics") or di.get("fusion_metrics") or {
+                    "tier": ds_row.get("risk_tier", get_tier_for_score(total_score_raw)),
                     "final_distress_score": distress_score_norm
                 }
 
                 turn = {
+                    "turn_number": idx + 1,
                     "timestamp": ts_iso,
                     "timestamp_unix": ts_unix,
                     "transcript": ci.get("raw_text") or ci.get("transcript", ""),
+                    "user_message": ci.get("raw_text") or ci.get("transcript", ""),
+                    "message": ci.get("raw_text") or ci.get("transcript", ""),
+                    "response_text": di.get("ai_response") or "",
+                    "channel": ci.get("channel", "voice" if voice_emotions else "text"),
                     "distress_score": distress_score_norm,
                     "safety_attention": di.get("safety_attention") or raw_analysis.get("safety_attention") or False,
                     "conversation_state": di.get("conversation_state") or raw_analysis.get("conversation_state") or "NORMAL",
@@ -1255,12 +1311,12 @@ def get_case_history(case_id: str):
                         "text_state": raw_analysis.get("text_state") or "TEXT_EMOTIONS_AVAILABLE"
                     },
                     "explanation_text": ds_row.get("explanation_text", ""),
-                    "risk_tier": ds_row.get("risk_tier", ""),
+                    "risk_tier": ds_row.get("risk_tier", "") or fusion_metrics.get("tier", "LOW"),
                 }
                 history.append(turn)
             return history
 
-        # ── 5. Fallback: in-memory session (only useful during live session) ───
+        # ── 5. Fallback: in-memory session ────────────────────────────────────
         session = conversation_session_manager.get_session(case_id)
         if session:
             formatted_history = []
@@ -1636,6 +1692,11 @@ def get_user_resources():
     """
     try:
         return user_portal_service.get_resources()
+    except Exception as e:
+        logger.error(f"Failed to get user resources: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
     except Exception as e:
         logger.error(f"Failed to get user resources: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

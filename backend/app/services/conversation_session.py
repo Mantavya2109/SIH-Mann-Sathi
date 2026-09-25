@@ -17,9 +17,12 @@ from backend.app.utils.timezone_utils import (
     get_ist_date_key
 )
 
-from backend.app.services.distress_scorer import apply_distress_reduction_cap, get_tier_for_score
+from backend.app.services.distress_scorer import apply_distress_reduction_cap, get_tier_for_score, apply_temporal_smoothing
 
 logger = logging.getLogger(__name__)
+
+# Permanent active case for prototype conversations
+ROHAN_CASE_2_ID = "a0a0a0a0-b0b0-c0c0-d0d0-e0e0e0e0e0e0"
 
 def is_valid_uuid(val: Any) -> bool:
     if not val:
@@ -36,16 +39,19 @@ def get_case_baseline(case_id: str) -> dict:
         return {"avg_score": 0.0}
     try:
         response = supabase.table("distress_scores") \
-            .select("total_score") \
+            .select("total_score, timestamp") \
             .eq("case_id", case_id) \
-            .order("timestamp") \
-            .limit(3) \
             .execute()
 
         if not response.data:
             return {"avg_score": 0.0}
 
-        scores = [row["total_score"] for row in response.data if row["total_score"] is not None]
+        sorted_rows = sorted(
+            response.data,
+            key=lambda r: (parse_to_utc(r.get("timestamp")).timestamp() if parse_to_utc(r.get("timestamp")) else 0.0)
+        )
+        first_three = sorted_rows[:3]
+        scores = [row["total_score"] for row in first_three if row.get("total_score") is not None]
         avg = sum(scores) / len(scores) if scores else 0.0
         return {"avg_score": avg}
     except Exception as e:
@@ -56,9 +62,9 @@ class ConversationSession:
     """
     Represents a single multi-turn conversation session backed by Supabase.
     """
-    def __init__(self, session_id: str, case_id: str = None, max_history: int = 10):
+    def __init__(self, session_id: str, case_id: str = None, max_history: int = 50):
         self.session_id = session_id
-        self.case_id = case_id or session_id
+        self.case_id = case_id or ROHAN_CASE_2_ID
         self.turn_number = 0
         self.max_history = max_history
         self.history: List[Dict[str, Any]] = []
@@ -81,13 +87,17 @@ class ConversationSession:
 
         try:
             prev_res = supabase.table("distress_scores") \
-                .select("total_score") \
+                .select("total_score, timestamp") \
                 .eq("case_id", self.case_id) \
-                .order("timestamp", desc=True) \
-                .limit(1) \
                 .execute()
-            if prev_res.data and prev_res.data[0].get("total_score") is not None:
-                return float(prev_res.data[0]["total_score"])
+            if prev_res.data:
+                valid_scores = sorted(
+                    prev_res.data,
+                    key=lambda r: (parse_to_utc(r.get("timestamp")).timestamp() if parse_to_utc(r.get("timestamp")) else 0.0),
+                    reverse=True
+                )
+                if valid_scores and valid_scores[0].get("total_score") is not None:
+                    return float(valid_scores[0]["total_score"])
         except Exception as e:
             logger.warning(f"Failed to fetch previous distress score for case {self.case_id}: {e}")
             
@@ -98,7 +108,7 @@ class ConversationSession:
                  recommendation_text: Optional[str] = None, cited_provisions: Optional[Any] = None):
         """
         Appends a conversational turn to the session history in Supabase and local cache.
-        Enforces rate-limiting smoothing so decreasing distress is capped to max 7-8% reduction per update.
+        Persists authoritative score without deviation.
         """
         self.turn_number += 1
         self.updated_at = time.time()
@@ -124,7 +134,7 @@ class ConversationSession:
         if internal_analysis and "text_analysis_output" in internal_analysis:
             text_analysis_out = internal_analysis["text_analysis_output"]
             if isinstance(text_analysis_out, dict):
-                sentiment_val = abs(text_analysis_out.get("sentiment_score", 0.0))
+                sentiment_val = float(text_analysis_out.get("sentiment_score", 0.0))
 
         # Extract primary text emotion
         primary_emotion = "neutral"
@@ -135,24 +145,25 @@ class ConversationSession:
                 if sorted_ems:
                     primary_emotion = sorted_ems[0][0]
 
-        # 3. Calculate distress score with rate-limiting cap on decreases (max 8% drop per update)
+        # 3. Calculate authoritative distress score with temporal smoothing
         raw_score_val = 0.0
         if distress_score is not None and not isinstance(distress_score, str):
             raw_score_val = float(distress_score)
         
-        raw_score_db = round(raw_score_val * 100.0, 2) if raw_score_val <= 1.0 else round(raw_score_val, 2)
+        raw_100 = round(raw_score_val * 100.0, 2) if raw_score_val <= 1.0 else round(raw_score_val, 2)
         previous_score = self.get_latest_distress_score()
-        total_score_db = apply_distress_reduction_cap(previous_score, raw_score_db, max_reduction_ratio=0.08)
+        total_score_db = apply_temporal_smoothing(previous_score, raw_100, safety_attention=safety_attention)
         score_val = round(total_score_db / 100.0, 4)
         fusion_tier = get_tier_for_score(total_score_db)
 
-        # Update internal_analysis so all downstream storage and indicators reflect the capped score
+        # Update internal_analysis so all downstream storage and indicators reflect the authoritative score
         if internal_analysis and isinstance(internal_analysis, dict):
             if "fusion_metrics" in internal_analysis and isinstance(internal_analysis["fusion_metrics"], dict):
                 internal_analysis["fusion_metrics"]["final_distress_score"] = score_val
                 internal_analysis["fusion_metrics"]["tier"] = fusion_tier
-                internal_analysis["fusion_metrics"]["raw_model_distress_score"] = round(raw_score_db / 100.0, 4)
-            internal_analysis["raw_model_distress_score"] = raw_score_db
+                internal_analysis["fusion_metrics"]["raw_model_distress_score"] = round(raw_100 / 100.0, 4)
+            internal_analysis["raw_model_distress_score"] = raw_100
+            internal_analysis["smoothed_distress_score"] = total_score_db
 
         # Mappings for distress_indicators JSONB
         distress_indicators = {
@@ -174,9 +185,9 @@ class ConversationSession:
                 "conversational_features": conversational_features
             }
 
-        # 4. Write to check_ins table in Supabase if valid UUID
+        # 4. Write to check_ins table in Supabase if ROHAN-CASE-2
         checkin_id = str(uuid.uuid4())
-        if is_valid_uuid(self.case_id):
+        if self.case_id == ROHAN_CASE_2_ID:
             try:
                 supabase.table("check_ins").insert({
                     "id": checkin_id,
@@ -191,20 +202,23 @@ class ConversationSession:
                     "voice_features": voice_features
                 }).execute()
             except Exception as e:
-                logger.error(f"Failed to insert turn into check_ins table: {e}", exc_info=True)
+                logger.warning(f"Failed to insert turn into check_ins table: {e}")
 
         # 5. Calculate baseline deviation and trend
         baseline = get_case_baseline(self.case_id)
-        deviation = total_score_db - baseline["avg_score"]
-        
-        if deviation > 10:
-            trend = "rising"
-        elif deviation < -10:
-            trend = "falling"
+        if baseline["avg_score"] > 0:
+            deviation = total_score_db - baseline["avg_score"]
+            if deviation > 5:
+                trend = "rising"
+            elif deviation < -5:
+                trend = "falling"
+            else:
+                trend = "stable"
+            explanation_text = f"Score {total_score_db}% vs baseline {round(baseline['avg_score'], 1)}% ({trend})"
         else:
+            deviation = 0.0
             trend = "stable"
-            
-        explanation_text = f"Score {total_score_db} vs baseline {round(baseline['avg_score'], 2)} ({trend})"
+            explanation_text = f"Check-in distress score is {total_score_db}% ({fusion_tier} tier)"
 
         sub_scores = {
             "session_id": self.session_id,
@@ -212,9 +226,9 @@ class ConversationSession:
             "baseline_deviation": round(deviation, 2)
         }
 
-        # 6. Write to distress_scores table in Supabase if valid UUID
+        # 6. Write to distress_scores table in Supabase if ROHAN-CASE-2
         score_id = str(uuid.uuid4())
-        if is_valid_uuid(self.case_id):
+        if self.case_id == ROHAN_CASE_2_ID:
             try:
                 supabase.table("distress_scores").insert({
                     "id": score_id,
@@ -226,7 +240,7 @@ class ConversationSession:
                     "explanation_text": explanation_text
                 }).execute()
             except Exception as e:
-                logger.error(f"Failed to insert into distress_scores table: {e}", exc_info=True)
+                logger.warning(f"Failed to insert into distress_scores table: {e}")
 
         # 7. Evaluate multimodal fusion result + crisis safety override for alert creation
         should_trigger_alert = (
@@ -235,7 +249,7 @@ class ConversationSession:
             total_score_db >= 60.0
         )
 
-        if should_trigger_alert and is_valid_uuid(self.case_id):
+        if should_trigger_alert and self.case_id == ROHAN_CASE_2_ID:
             alert_id = str(uuid.uuid4())
             if not recommendation_text:
                 recommendation_text = "Prioritize immediate counsellor outreach and legal relief assessment."
@@ -253,7 +267,7 @@ class ConversationSession:
                     "cited_provisions": cited_provisions
                 }).execute()
             except Exception as e:
-                logger.error(f"Failed to insert emergency alert record: {e}", exc_info=True)
+                logger.warning(f"Failed to insert emergency alert record: {e}")
 
         # 8. Update local cache (essential for test frameworks and immediate context retrieval)
         turn_data = {
@@ -287,116 +301,32 @@ class ConversationSessionManager:
     def __init__(self):
         self.sessions: Dict[str, ConversationSession] = {}
 
-    def get_active_case_id_for_user(self, user_id: str) -> str:
+    def get_active_case_id_for_user(self, user_id: Optional[str] = None) -> str:
         """
-        Finds the active case ID for the given user ID.
-        If multiple active cases exist, picks the one with the latest enrollment_date or check-in.
-        If no active case exists, falls back to a valid deterministic UUID.
+        Resolves to the permanent active case ROHAN-CASE-2 for live conversation testing.
         """
-        try:
-            if not user_id:
-                return str(uuid.uuid4())
+        return ROHAN_CASE_2_ID
 
-            # Check direct user mapping for demo users
-            uid_lower = str(user_id).lower()
-            if "victim_1" in uid_lower or "ananya" in uid_lower or "60895178" in uid_lower:
-                return "60895178-7a8b-4392-961b-ac82d4b7ec0c"
-            elif "victim_2" in uid_lower or "rohan" in uid_lower or "a0a0a0a0" in uid_lower or "7d64f81f" in uid_lower:
-                return "a0a0a0a0-b0b0-c0c0-d0d0-e0e0e0e0e0e0"
-
-            # Determine user identity based on auth user_id lookup
-            user_name = None
-            try:
-                users_list = supabase.auth.admin.list_users()
-                auth_users = users_list if isinstance(users_list, list) else getattr(users_list, "users", [])
-                for u in auth_users:
-                    if str(u.id) == str(user_id):
-                        meta = getattr(u, "user_metadata", {}) or {}
-                        user_name = meta.get("name", "").upper()
-                        break
-            except Exception as ex:
-                logger.warning(f"Failed to list auth users in get_active_case_id_for_user: {ex}")
-
-            # Fetch all cases
-            res = supabase.table("cases").select("*").execute()
-            candidate_cases = []
-            for c in res.data or []:
-                cid = c.get("id")
-                nhaa_ref = c.get("nhaa_ref", "") or ""
-                
-                # Map case to Rohan/Ananya
-                is_match = False
-                if str(cid) == str(user_id):
-                    is_match = True
-                elif user_name and "ROHAN" in user_name and "ROHAN" in nhaa_ref.upper():
-                    is_match = True
-                elif user_name and "ANANYA" in user_name and "ANANYA" in nhaa_ref.upper():
-                    is_match = True
-                elif not user_name:
-                    if "7d64f81f-8108-467a-ae43-36986d04766f" in str(user_id) and "ROHAN" in nhaa_ref.upper():
-                        is_match = True
-                    elif "60895178-7a8b-4392-961b-ac82d4b7ec0c" in str(user_id) and "ANANYA" in nhaa_ref.upper():
-                        is_match = True
-                
-                if is_match:
-                    candidate_cases.append(c)
-
-            def get_case_number(ref_str: str) -> int:
-                if not ref_str:
-                    return 0
-                for part in reversed(ref_str.split("-")):
-                    if part.isdigit():
-                        return int(part)
-                return 0
-
-            # Filter for active cases
-            active_cases = [c for c in candidate_cases if c.get("stage") == "active"]
-            if active_cases:
-                active_cases.sort(key=lambda x: (get_case_number(x.get("nhaa_ref", "")), x.get("enrollment_date", "")), reverse=True)
-                return active_cases[0]["id"]
-            elif candidate_cases:
-                candidate_cases.sort(key=lambda x: (get_case_number(x.get("nhaa_ref", "")), x.get("enrollment_date", "")), reverse=True)
-                return candidate_cases[0]["id"]
-
-            if is_valid_uuid(user_id):
-                return user_id
-            return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id)))
-        except Exception as e:
-            logger.warning(f"Error resolving active case for user {user_id}: {e}")
-            if is_valid_uuid(user_id):
-                return user_id
-            return str(uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id)))
-
-    def create_session(self, user_id: Optional[str] = None, max_history: int = 10) -> str:
+    def create_session(self, user_id: Optional[str] = None, max_history: int = 50) -> str:
         """
-        Registers a new case and consent profile in Supabase and local cache.
+        Creates a new conversation session mapped to permanent case ROHAN-CASE-2.
         """
         session_id = str(uuid.uuid4())
-        case_id = self.get_active_case_id_for_user(user_id) if user_id else session_id
-        timestamp_str = datetime.now(timezone.utc).isoformat()
+        case_id = ROHAN_CASE_2_ID
+        timestamp_str = utc_now_iso()
         
-        # Write to local cache (essential for test compatibility)
+        # Write to local cache
         self.sessions[session_id] = ConversationSession(session_id, case_id, max_history)
 
-        # Write to Supabase database (live persistence)
+        # Ensure ROHAN-CASE-2 exists and is active in Supabase
         try:
-            case_exists = False
-            if is_valid_uuid(case_id):
-                try:
-                    res_case = supabase.table("cases").select("*").eq("id", case_id).execute()
-                    if res_case.data:
-                        case_exists = True
-                        if res_case.data[0].get("stage") == "inactive":
-                            supabase.table("cases").update({"stage": "active"}).eq("id", case_id).execute()
-                except Exception as ex:
-                    logger.warning(f"Error checking case existence in Supabase: {ex}")
-            
-            if not case_exists and is_valid_uuid(case_id):
+            res_case = supabase.table("cases").select("*").eq("id", case_id).execute()
+            if not res_case.data:
                 supabase.table("cases").insert({
                     "id": case_id,
                     "enrollment_date": timestamp_str,
                     "stage": "active",
-                    "nhaa_ref": "ROHAN-PERSISTENT" if (user_id and "rohan" in str(user_id).lower()) else f"CASE-{session_id[:8]}"
+                    "nhaa_ref": "ROHAN-CASE-2"
                 }).execute()
 
                 supabase.table("consents").insert({
@@ -405,12 +335,12 @@ class ConversationSessionManager:
                     "wearable_consent": False,
                     "consented_at": timestamp_str
                 }).execute()
-                
-                logger.info(f"Registered new Supabase case: {case_id}")
+                logger.info(f"Initialized permanent Supabase case: {case_id} (ROHAN-CASE-2)")
             else:
-                logger.info(f"Using existing Supabase case: {case_id}")
+                if res_case.data[0].get("stage") != "active":
+                    supabase.table("cases").update({"stage": "active"}).eq("id", case_id).execute()
         except Exception as e:
-            logger.error(f"Failed to register case in Supabase: {e}", exc_info=True)
+            logger.error(f"Failed to verify permanent case in Supabase: {e}", exc_info=True)
             
         return session_id
 

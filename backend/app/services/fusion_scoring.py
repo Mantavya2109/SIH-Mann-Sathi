@@ -11,7 +11,8 @@ from backend.app.services.distress_scorer import apply_distress_reduction_cap, g
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-VOICE_ANALYSIS_URL = "http://127.0.0.1:8000/api/analyze"
+BACKEND_INTERNAL_URL = os.getenv("BACKEND_INTERNAL_URL", "http://127.0.0.1:8000").rstrip("/")
+VOICE_ANALYSIS_URL = f"{BACKEND_INTERNAL_URL}/api/analyze"
 
 
 def get_case_baseline(case_id: str) -> dict:

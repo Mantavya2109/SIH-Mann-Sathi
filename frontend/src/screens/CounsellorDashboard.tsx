@@ -17,6 +17,7 @@ import { LAST_PAGE_KEYS, useRememberedState } from "../lib/lastPage";
 import { getApiBaseUrl } from "../utils/api";
 
 const COUNSELLOR_TABS = ["Dashboard", "Cases", "Analytics", "Alerts", "Biosignal Analysis", "Location", "Settings"];
+const ROHAN_CASE_2_ID = "a0a0a0a0-b0b0-c0c0-d0d0-e0e0e0e0e0e0";
 
 interface Props {
   user: { id: string; name: string; email: string; role: string };
@@ -97,11 +98,13 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
       if (!casesRes.ok) throw new Error("Failed to fetch cases");
       const casesData = await casesRes.json();
       setCases(casesData || []);
-      
-      // Auto select first case if none selected
+
+      // Auto select Rohan Case 2 by default if available, else first case
       if (casesData && casesData.length > 0) {
-        if (!selectedCaseId || !casesData.some((c: any) => c.case_id === selectedCaseId)) {
-          setSelectedCaseId(casesData[0].case_id);
+        const rohanCase = casesData.find((c: any) => c.case_id === ROHAN_CASE_2_ID || c.id === ROHAN_CASE_2_ID);
+        const defaultCaseId = rohanCase ? (rohanCase.case_id || rohanCase.id) : (casesData[0].case_id || casesData[0].id);
+        if (!selectedCaseId || !casesData.some((c: any) => (c.case_id || c.id) === selectedCaseId)) {
+          setSelectedCaseId(defaultCaseId);
         }
       } else {
         setSelectedCaseId(null);
@@ -126,6 +129,16 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  // Whenever the "Cases" tab is opened, automatically default the selection to ROHAN-CASE-2
+  useEffect(() => {
+    if (activeNav === "Cases" && cases.length > 0) {
+      const rohanCase = cases.find(c => (c.case_id || (c as any).id) === ROHAN_CASE_2_ID);
+      if (rohanCase) {
+        setSelectedCaseId(rohanCase.case_id || (rohanCase as any).id);
+      }
+    }
+  }, [activeNav, cases]);
 
   // Fetch Biosignal and Holistic Data for Selected Case
   async function fetchBiosignals(caseId: string) {
@@ -217,7 +230,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         // Use persistent Supabase history endpoint (not in-memory /api/conversation/)
         const detailsRes = await fetch(getApiUrl(`/api/counsellor/cases/${selectedCaseId}`));
         const historyRes = await fetch(getApiUrl(`/api/counsellor/cases/${selectedCaseId}/history`));
-        
+
         if (detailsRes.ok && isMounted) {
           const detailsData = await detailsRes.json();
           let historyArr: any[] = [];
@@ -241,7 +254,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     return () => {
       isMounted = false;
     };
-  // caseDetailsRefreshKey bumps whenever fetchDashboardData (Sync) completes
+    // caseDetailsRefreshKey bumps whenever fetchDashboardData (Sync) completes
   }, [selectedCaseId, caseDetailsRefreshKey]);
 
   async function acknowledgeAlert(alertId: string) {
@@ -252,7 +265,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
         body: JSON.stringify({ acknowledged_by: user.name })
       });
       if (!res.ok) throw new Error("Failed to acknowledge alert");
-      
+
       // Refresh
       fetchDashboardData();
     } catch (err: any) {
@@ -363,20 +376,20 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
 
   const chartData = selectedCaseDetails?.history && selectedCaseDetails.history.length > 0
     ? selectedCaseDetails.history.map((turn: any) => {
-        const dateObj = parseToDate(turn.timestamp || turn.timestamp_unix) || new Date();
-        const dayStr = new Intl.DateTimeFormat("en-IN", {
-          timeZone: IST_TIMEZONE,
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        }).format(dateObj);
-        return {
-          day: dayStr,
-          distress: Math.round((turn.distress_score || 0.0) * 100),
-        };
-      })
+      const dateObj = parseToDate(turn.timestamp || turn.timestamp_unix) || new Date();
+      const dayStr = new Intl.DateTimeFormat("en-IN", {
+        timeZone: IST_TIMEZONE,
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }).format(dateObj);
+      return {
+        day: dayStr,
+        distress: Math.round((turn.distress_score || 0.0) * 100),
+      };
+    })
     : [];
 
   const selectedCase = cases.find(c => c.case_id === selectedCaseId);
@@ -434,7 +447,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
     const now = new Date();
     const todayISTKey = getISTDateKey(now);
     const yesterdayISTKey = getISTDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    
+
     const todayTurns = history.filter((t: any) => getISTDateKey(t.timestamp || t.timestamp_unix) === todayISTKey);
     const yesterdayTurns = history.filter((t: any) => getISTDateKey(t.timestamp || t.timestamp_unix) === yesterdayISTKey);
 
@@ -483,46 +496,46 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
   // and, on their own, in the Biosignal Analysis tab.
   const physioTiles = (
     <>
-    {/* Heart Rate — live wearable (GET /api/wearable/analysis/{case_id}) */}
-    <SignalTile
-      label="Heart Rate"
-      value={liveHeartRate != null ? `${Math.round(liveHeartRate)} BPM` : "—"}
-      status={liveHeartRate != null ? heartRateStatusLabel : null}
-      statusClass="text-slate-600"
-      sub={liveHeartRate != null ? undefined : isRohanCase2 ? "No live reading yet" : "No device data"}
-      badge={liveHeartRate != null ? "live" : undefined}
-      muted={liveHeartRate == null}
-    />
-    {/* Blood Oxygen — live wearable (same endpoint) */}
-    <SignalTile
-      label="Blood Oxygen"
-      value={liveSpo2 != null ? `${Math.round(liveSpo2)}% SpO2` : "—"}
-      status={liveSpo2 != null ? spo2StatusLabel : null}
-      statusClass="text-teal-700"
-      sub={liveSpo2 != null ? undefined : isRohanCase2 ? "No live reading yet" : "No device data"}
-      badge={liveSpo2 != null ? "live" : undefined}
-      muted={liveSpo2 == null}
-    />
-    {/* Sleep — demo/prototype data, Rohan Case 2 only */}
-    <SignalTile
-      label="Sleep"
-      value={isRohanCase2 ? (bioData?.sleep?.duration_formatted || "6h 42m") : "—"}
-      status={isRohanCase2 ? (holisticData?.signals?.sleep_quality || "Moderate") : null}
-      statusClass="text-purple-700"
-      sub={isRohanCase2 ? undefined : "No device data"}
-      badge={isRohanCase2 ? "demo" : undefined}
-      muted={!isRohanCase2}
-    />
-    {/* Skin Conductance — demo/prototype data, Rohan Case 2 only */}
-    <SignalTile
-      label="Skin Conductance"
-      value={isRohanCase2 ? `${bioData?.skin_conductance?.average_us || 2.8} µS` : "—"}
-      status={isRohanCase2 ? (holisticData?.signals?.skin_conductance_status || "Elevated") : null}
-      statusClass="text-orange-600"
-      sub={isRohanCase2 ? undefined : "No device data"}
-      badge={isRohanCase2 ? "demo" : undefined}
-      muted={!isRohanCase2}
-    />
+      {/* Heart Rate — live wearable (GET /api/wearable/analysis/{case_id}) */}
+      <SignalTile
+        label="Heart Rate"
+        value={liveHeartRate != null ? `${Math.round(liveHeartRate)} BPM` : "—"}
+        status={liveHeartRate != null ? heartRateStatusLabel : null}
+        statusClass="text-slate-600"
+        sub={liveHeartRate != null ? undefined : isRohanCase2 ? "No live reading yet" : "No device data"}
+        badge={liveHeartRate != null ? "live" : undefined}
+        muted={liveHeartRate == null}
+      />
+      {/* Blood Oxygen — live wearable (same endpoint) */}
+      <SignalTile
+        label="Blood Oxygen"
+        value={liveSpo2 != null ? `${Math.round(liveSpo2)}% SpO2` : "—"}
+        status={liveSpo2 != null ? spo2StatusLabel : null}
+        statusClass="text-teal-700"
+        sub={liveSpo2 != null ? undefined : isRohanCase2 ? "No live reading yet" : "No device data"}
+        badge={liveSpo2 != null ? "live" : undefined}
+        muted={liveSpo2 == null}
+      />
+      {/* Sleep — demo/prototype data, Rohan Case 2 only */}
+      <SignalTile
+        label="Sleep"
+        value={isRohanCase2 ? (bioData?.sleep?.duration_formatted || "6h 42m") : "—"}
+        status={isRohanCase2 ? (holisticData?.signals?.sleep_quality || "Moderate") : null}
+        statusClass="text-purple-700"
+        sub={isRohanCase2 ? undefined : "No device data"}
+        badge={isRohanCase2 ? "demo" : undefined}
+        muted={!isRohanCase2}
+      />
+      {/* Skin Conductance — demo/prototype data, Rohan Case 2 only */}
+      <SignalTile
+        label="Skin Conductance"
+        value={isRohanCase2 ? `${bioData?.skin_conductance?.average_us || 2.8} µS` : "—"}
+        status={isRohanCase2 ? (holisticData?.signals?.skin_conductance_status || "Elevated") : null}
+        statusClass="text-orange-600"
+        sub={isRohanCase2 ? undefined : "No device data"}
+        badge={isRohanCase2 ? "demo" : undefined}
+        muted={!isRohanCase2}
+      />
     </>
   );
 
@@ -534,8 +547,30 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
       {/* LEFT — conversational signals */}
       <div className="order-2 lg:order-1 flex flex-col gap-3">
         <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 px-1">Conversational signals</div>
-        <SignalTile label="Text Analysis" value={holisticData?.signals?.text_score || "40%"} sub="Linguistic" />
-        <SignalTile label="Voice Analysis" value={holisticData?.signals?.voice_score || "59%"} sub="Acoustic" />
+        <SignalTile
+          label="Text Analysis"
+          value={
+            latestTurn?.text_score != null
+              ? `${latestTurn.text_score}%`
+              : (holisticData?.signals?.text_score && holisticData.signals.text_score !== "N/A"
+                  ? holisticData.signals.text_score
+                  : (latestTurn ? `${Math.round((latestTurn.distress_score || 0) * 100)}%` : "Not available"))
+          }
+          sub="Linguistic"
+        />
+        <SignalTile
+          label="Voice Analysis"
+          value={
+            latestTurn?.voice_score != null
+              ? `${latestTurn.voice_score}%`
+              : (latestTurn?.is_voice && latestTurn?.voice_emotions
+                  ? `${Math.round(Math.max(...(Object.values(latestTurn.voice_emotions) as number[])) * 100)}%`
+                  : (holisticData?.signals?.voice_score && holisticData.signals.voice_score !== "Text-only"
+                      ? holisticData.signals.voice_score
+                      : "Not available"))
+          }
+          sub="Acoustic"
+        />
         <div className="flex-1 p-4 bg-slate-50 border border-slate-100 rounded-xl">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Recent check-in</div>
@@ -564,9 +599,24 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
       {/* CENTRE — fusion score, the visual anchor */}
       <div className="order-1 lg:order-2">
         <FusionScorePanel
-          score={holisticData?.signals?.fusion_score || "52%"}
-          tier={holisticData?.signals?.risk_tier || "MODERATE"}
-          trend={holisticData?.trend || "Improving"}
+          score={
+            latestTurn?.final_distress_score != null
+              ? `${latestTurn.final_distress_score}%`
+              : (selectedCase?.latest_distress_score != null
+                  ? `${selectedCase.latest_distress_score}%`
+                  : (holisticData?.signals?.fusion_score || "0%"))
+          }
+          tier={
+            latestTurn?.risk_tier ||
+            selectedCase?.risk_tier ||
+            holisticData?.signals?.risk_tier ||
+            "LOW"
+          }
+          trend={
+            selectedCase?.trend
+              ? (selectedCase.trend === "rising" ? "Worsening" : selectedCase.trend === "falling" ? "Improving" : "Stable")
+              : (holisticData?.trend || "Stable")
+          }
         />
       </div>
 
@@ -639,9 +689,8 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               <button
                 key={item}
                 onClick={() => setActiveNav(item)}
-                className={`relative px-3.5 py-2 rounded-full text-[13px] font-medium transition-colors ${
-                  activeNav === item ? "text-white" : "text-[#9aa5b5] hover:text-white"
-                }`}
+                className={`relative px-3.5 py-2 rounded-full text-[13px] font-medium transition-colors ${activeNav === item ? "text-white" : "text-[#9aa5b5] hover:text-white"
+                  }`}
                 style={{ fontFamily: "Inter, sans-serif" }}
               >
                 {activeNav === item && (
@@ -693,9 +742,8 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 if (el && activeNav === item) el.scrollIntoView({ block: "nearest", inline: "center" });
               }}
               onClick={() => setActiveNav(item)}
-              className={`relative shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors ${
-                activeNav === item ? "text-white" : "text-[#9aa5b5] hover:text-white"
-              }`}
+              className={`relative shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors ${activeNav === item ? "text-white" : "text-[#9aa5b5] hover:text-white"
+                }`}
             >
               {activeNav === item && (
                 <motion.span
@@ -861,23 +909,22 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                                 </span>
                               </td>
                               <td className="px-4 py-4">
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 w-max ${
-                                c.priority_level === "CRITICAL" ? "bg-red-100 text-red-700 border border-red-200" :
-                                c.priority_level === "HIGH" ? "bg-orange-100 text-orange-700 border border-orange-200" :
-                                c.priority_level === "MEDIUM" ? "bg-amber-100 text-amber-700 border border-amber-200" : "bg-green-100 text-green-700 border border-green-200"
-                              }`}>
-                                {(c.priority_level === "CRITICAL" || c.priority_level === "HIGH") && (
-                                  <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
-                                )}
-                                <span>{c.priority_level || c.risk_tier}</span>
-                              </span>
-                            </td>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 w-max ${c.priority_level === "CRITICAL" ? "bg-red-100 text-red-700 border border-red-200" :
+                                    c.priority_level === "HIGH" ? "bg-orange-100 text-orange-700 border border-orange-200" :
+                                      c.priority_level === "MEDIUM" ? "bg-amber-100 text-amber-700 border border-amber-200" : "bg-green-100 text-green-700 border border-green-200"
+                                  }`}>
+                                  {(c.priority_level === "CRITICAL" || c.priority_level === "HIGH") && (
+                                    <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+                                  )}
+                                  <span>{c.priority_level || c.risk_tier}</span>
+                                </span>
+                              </td>
                               <td className="px-4 py-4 text-slate-700 text-xs font-medium">
                                 {c.days_since_last_checkin !== undefined && c.days_since_last_checkin !== null ? (
                                   c.days_since_last_checkin < 0.0007 ? "Just now" :
-                                  c.days_since_last_checkin < 0.0416 ? `${Math.max(1, Math.round(c.days_since_last_checkin * 1440))} minutes ago` :
-                                  c.days_since_last_checkin < 1.0 ? `${Math.max(1, Math.round(c.days_since_last_checkin * 24))} hours ago` :
-                                  `${c.days_since_last_checkin.toFixed(1)} days ago`
+                                    c.days_since_last_checkin < 0.0416 ? `${Math.max(1, Math.round(c.days_since_last_checkin * 1440))} minutes ago` :
+                                      c.days_since_last_checkin < 1.0 ? `${Math.max(1, Math.round(c.days_since_last_checkin * 24))} hours ago` :
+                                        `${c.days_since_last_checkin.toFixed(1)} days ago`
                                 ) : "N/A"}
                               </td>
                               <td className="px-4 py-4">
@@ -900,7 +947,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <StagedAIInsight
                   key={selectedCaseId || "none"}
                   insightText={
-                    selectedCase?.priority_reason 
+                    selectedCase?.priority_reason
                       ? `Triage Note: ${selectedCase.priority_reason}`
                       : selectedCaseDetails?.summary?.explanation_text || "Patient demonstrates consistent biosignal stabilization post-session."
                   }
@@ -916,15 +963,14 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <div className="rounded-3xl p-5 border border-emerald-100/40 bg-white shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out">
                   <h3 className="font-bold text-slate-900 text-sm mb-3 flex items-center justify-between">
                     <span>Today vs Yesterday Assessment</span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                      dailyBreakdown.changeStatus === "WORSENING" ? "bg-red-100 text-red-700 border-red-200" :
-                      dailyBreakdown.changeStatus === "IMPROVING" ? "bg-green-100 text-green-700 border-green-200" :
-                      dailyBreakdown.changeStatus === "STABLE" ? "bg-slate-100 text-slate-700 border-slate-200" : "bg-blue-50 text-blue-700 border-blue-100"
-                    }`}>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${dailyBreakdown.changeStatus === "WORSENING" ? "bg-red-100 text-red-700 border-red-200" :
+                        dailyBreakdown.changeStatus === "IMPROVING" ? "bg-green-100 text-green-700 border-green-200" :
+                          dailyBreakdown.changeStatus === "STABLE" ? "bg-slate-100 text-slate-700 border-slate-200" : "bg-blue-50 text-blue-700 border-blue-100"
+                      }`}>
                       {dailyBreakdown.changeStatus.replace("_", " ")}
                     </span>
                   </h3>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-2">
                       <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">Yesterday (IST)</div>
@@ -952,7 +998,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       )}
                     </div>
                   </div>
-                  
+
                   {dailyBreakdown.yesterdayMetrics && dailyBreakdown.todayMetrics && (
                     <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium">
                       💡 Distress score changed by <span className={`font-bold ${dailyBreakdown.changeValue > 0 ? "text-red-600" : "text-green-600"}`}>
@@ -966,15 +1012,14 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <div className="rounded-3xl p-5 border border-emerald-100/40 bg-white shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 ease-out space-y-4">
                   <h3 className="font-bold text-slate-900 text-sm flex items-center justify-between">
                     <span>Contributing Modality Signals & Fusion</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      selectedCaseDetails?.summary?.has_active_alert
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${selectedCaseDetails?.summary?.has_active_alert
                         ? "bg-red-100 text-red-700 border border-red-200"
                         : "bg-teal-50 text-teal-700 border border-teal-200"
-                    }`}>
+                      }`}>
                       Alert: {selectedCaseDetails?.summary?.has_active_alert ? "ACTIVE" : "NONE"}
                     </span>
                   </h3>
-                  
+
                   <div className="space-y-3">
                     {/* Multimodal Score Matrix */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
@@ -1058,9 +1103,9 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                         <span className="text-slate-900">
                           {latestTurn?.text_emotions && Object.keys(latestTurn.text_emotions).length > 0
                             ? `Emotions logged (${Object.keys(latestTurn.text_emotions).length})`
-                            : latestTurn?.internal_analysis?.text_analysis_output?.emotion_category 
-                            ? `Category: ${latestTurn.internal_analysis.text_analysis_output.emotion_category}`
-                            : "Text logged"}
+                            : latestTurn?.internal_analysis?.text_analysis_output?.emotion_category
+                              ? `Category: ${latestTurn.internal_analysis.text_analysis_output.emotion_category}`
+                              : "Text logged"}
                         </span>
                       </div>
                       {(latestTurn?.text_emotions || latestTurn?.internal_analysis?.text_emotions) && (
@@ -1073,7 +1118,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                         </div>
                       )}
                     </div>
-                    
+
                     {/* Voice Modality Signal */}
                     <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
                       <div className="flex justify-between font-semibold">
@@ -1095,15 +1140,14 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                         <div className="text-[10px] text-slate-400 italic mt-1">No acoustic features recorded for this interaction.</div>
                       )}
                     </div>
-                    
+
                     {/* Fusion Signal */}
                     <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
                       <div className="flex justify-between font-semibold">
                         <span className="text-slate-700">Multimodal Fusion Risk Tier</span>
-                        <span className={`font-bold ${
-                          (latestTurn?.risk_tier === "SEVERE" || latestTurn?.risk_tier === "HIGH") ? "text-red-600" :
-                          latestTurn?.risk_tier === "MODERATE" ? "text-amber-600" : "text-green-600"
-                        }`}>
+                        <span className={`font-bold ${(latestTurn?.risk_tier === "SEVERE" || latestTurn?.risk_tier === "HIGH") ? "text-red-600" :
+                            latestTurn?.risk_tier === "MODERATE" ? "text-amber-600" : "text-green-600"
+                          }`}>
                           {latestTurn?.risk_tier || "LOW"} Risk Tier
                         </span>
                       </div>
@@ -1177,9 +1221,8 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <button
                   key={c.case_id}
                   onClick={() => setSelectedCaseId(c.case_id)}
-                  className={`w-full p-4 rounded-xl border text-left flex flex-col transition-all ${
-                    selectedCaseId === c.case_id ? "border-teal-500 bg-teal-50/30" : "border-slate-200 bg-white"
-                  }`}
+                  className={`w-full p-4 rounded-xl border text-left flex flex-col transition-all ${selectedCaseId === c.case_id ? "border-teal-500 bg-teal-50/30" : "border-slate-200 bg-white"
+                    }`}
                 >
                   <span className="font-bold text-[#0f172a] text-sm">{c.user?.name}</span>
                   <span className="text-[10px] text-[#64748b] mt-0.5">{c.user?.email} • {c.nhaa_ref}</span>
@@ -1200,7 +1243,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   const fm = turn.internal_analysis?.fusion_metrics;
                   const tier = fm?.tier || turn.risk_tier || (turn.distress_score > 0.75 ? "SEVERE" : turn.distress_score > 0.5 ? "HIGH" : turn.distress_score > 0.25 ? "MODERATE" : "LOW");
                   const isAlert = turn.safety_attention || turn.distress_score >= 0.6 || tier === "SEVERE" || tier === "HIGH";
-                  
+
                   return (
                     <div key={turn.turn_number} className="rounded-2xl p-5 border border-slate-200 bg-white space-y-4 shadow-xs">
                       <div className="flex justify-between items-center pb-2 border-b border-slate-100">
@@ -1332,11 +1375,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           <h2 className="text-xl font-bold text-slate-900">{selectedCaseDetails.user?.name}</h2>
                           <p className="text-xs text-[#64748b]">{selectedCaseDetails.user?.email} • ID: {selectedCaseDetails.case?.id}</p>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${
-                          selectedCaseDetails.summary?.risk_tier === "SEVERE" ? "bg-red-100 text-red-700 border border-red-200" :
-                          selectedCaseDetails.summary?.risk_tier === "HIGH" ? "bg-orange-100 text-orange-700 border border-orange-200" :
-                          "bg-green-100 text-green-700 border border-green-200"
-                        }`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${selectedCaseDetails.summary?.risk_tier === "SEVERE" ? "bg-red-100 text-red-700 border border-red-200" :
+                            selectedCaseDetails.summary?.risk_tier === "HIGH" ? "bg-orange-100 text-orange-700 border border-orange-200" :
+                              "bg-green-100 text-green-700 border border-green-200"
+                          }`}>
                           {selectedCaseDetails.summary?.risk_tier} RISK TIER
                         </span>
                       </div>
@@ -1369,11 +1411,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           <p className="text-xs text-[#64748b]">Live status from the connected wearable device</p>
                         </div>
                         {wearableData?.status && (
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${
-                            wearableData.status === "active" ? "bg-green-100 text-green-700 border-green-200" :
-                            wearableData.status === "not_responding" ? "bg-amber-100 text-amber-700 border-amber-300" :
-                            "bg-slate-100 text-slate-500 border-slate-200"
-                          }`}>
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${wearableData.status === "active" ? "bg-green-100 text-green-700 border-green-200" :
+                              wearableData.status === "not_responding" ? "bg-amber-100 text-amber-700 border-amber-300" :
+                                "bg-slate-100 text-slate-500 border-slate-200"
+                            }`}>
                             {wearableData.status === "active" ? "ACTIVE" : wearableData.status === "not_responding" ? "NOT RESPONDING" : "NO DATA"}
                           </span>
                         )}
@@ -1433,11 +1474,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                           <h3 className="font-bold text-slate-900 text-sm">Mental Status Progress Overview</h3>
                           <p className="text-xs text-[#64748b]">Day-over-day distress evaluation (IST)</p>
                         </div>
-                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                          dailyBreakdown.changeStatus === "WORSENING" ? "bg-red-100 text-red-700 border border-red-200" :
-                          dailyBreakdown.changeStatus === "IMPROVING" ? "bg-green-100 text-green-700 border-green-200" :
-                          "bg-slate-100 text-slate-700 border border-slate-200"
-                        }`}>
+                        <div className={`px-2.5 py-1 rounded-lg text-xs font-bold ${dailyBreakdown.changeStatus === "WORSENING" ? "bg-red-100 text-red-700 border border-red-200" :
+                            dailyBreakdown.changeStatus === "IMPROVING" ? "bg-green-100 text-green-700 border-green-200" :
+                              "bg-slate-100 text-slate-700 border border-slate-200"
+                          }`}>
                           Trend: {dailyBreakdown.changeStatus.replace("_", " ")}
                         </div>
                       </div>
@@ -1466,8 +1506,8 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       const activeDateKey = selectedHistoryDate === "ALL"
                         ? "ALL"
                         : (selectedHistoryDate && availableDateKeys.includes(selectedHistoryDate))
-                        ? selectedHistoryDate
-                        : (availableDateKeys[0] || null);
+                          ? selectedHistoryDate
+                          : (availableDateKeys[0] || null);
 
                       // 4. Filter turns for active selection
                       const turnsForActiveDate = activeDateKey === "ALL"
@@ -1538,11 +1578,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                                   <button
                                     key={dKey}
                                     onClick={() => setSelectedHistoryDate(dKey)}
-                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs transition-all flex-shrink-0 border cursor-pointer ${
-                                      isSelected
+                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs transition-all flex-shrink-0 border cursor-pointer ${isSelected
                                         ? "bg-teal-600 text-white border-teal-600 shadow-xs font-bold"
                                         : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200 font-medium"
-                                    }`}
+                                      }`}
                                     style={{ fontFamily: "Manrope, sans-serif" }}
                                   >
                                     <span className="flex items-center gap-1.5">
@@ -1565,11 +1604,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                                       <span>{pillTitle}</span>
                                     </span>
                                     <span
-                                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                        isSelected
+                                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isSelected
                                           ? "bg-teal-700 text-white"
                                           : "bg-slate-100 text-slate-600"
-                                      }`}
+                                        }`}
                                     >
                                       {turnsList.length}
                                     </span>
@@ -1581,20 +1619,18 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                               {availableDateKeys.length > 1 && (
                                 <button
                                   onClick={() => setSelectedHistoryDate("ALL")}
-                                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs transition-all flex-shrink-0 border cursor-pointer ${
-                                    activeDateKey === "ALL"
+                                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs transition-all flex-shrink-0 border cursor-pointer ${activeDateKey === "ALL"
                                       ? "bg-teal-600 text-white border-teal-600 shadow-xs font-bold"
                                       : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200 font-medium"
-                                  }`}
+                                    }`}
                                   style={{ fontFamily: "Manrope, sans-serif" }}
                                 >
                                   <span>All Dates</span>
                                   <span
-                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                      activeDateKey === "ALL"
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeDateKey === "ALL"
                                         ? "bg-teal-700 text-white"
                                         : "bg-slate-100 text-slate-600"
-                                    }`}
+                                      }`}
                                   >
                                     {allTurns.length}
                                   </span>
@@ -1666,20 +1702,19 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                             {formatISTDateTime(alert.created_at)}
                           </td>
                           <td className="px-4 py-4">
-                              {alert.cited_provisions && alert.cited_provisions.map((prov: any, index: number) => {
-                                const label = typeof prov === "object" ? (prov?.section_ref || prov?.section || JSON.stringify(prov)) : prov;
-                                return (
-                                  <span key={index} className="px-2 py-0.5 rounded bg-blue-50 border border-blue-100 text-blue-700 text-[10px] font-semibold">
-                                    {label}
-                                  </span>
-                                );
-                              })}
+                            {alert.cited_provisions && alert.cited_provisions.map((prov: any, index: number) => {
+                              const label = typeof prov === "object" ? (prov?.section_ref || prov?.section || JSON.stringify(prov)) : prov;
+                              return (
+                                <span key={index} className="px-2 py-0.5 rounded bg-blue-50 border border-blue-100 text-blue-700 text-[10px] font-semibold">
+                                  {label}
+                                </span>
+                              );
+                            })}
                           </td>
                           <td className="px-4 py-4 text-xs text-slate-700 max-w-xs">{alert.recommendation_text || "Consider immediate outreach."}</td>
                           <td className="px-4 py-4">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                              isActive ? "bg-red-100 text-red-700 border border-red-200" : "bg-green-100 text-green-700 border border-green-200"
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${isActive ? "bg-red-100 text-red-700 border border-red-200" : "bg-green-100 text-green-700 border border-green-200"
+                              }`}>
                               {alert.status}
                             </span>
                           </td>
@@ -1793,7 +1828,7 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                   className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-all flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={(bioSyncLoading || wearableLoading) ? "animate-spin" : ""}>
-                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l6.23-1.19"/>
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l6.23-1.19" />
                   </svg>
                   {(bioSyncLoading || wearableLoading) ? "Syncing..." : "Simulate Sync"}
                 </button>
@@ -1818,17 +1853,15 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                 <div>
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Connection Status</div>
                   <div className="flex items-center gap-1 mt-0.5">
-                    <span className={`w-2 h-2 rounded-full animate-pulse ${
-                      liveHeartRate != null || liveSpo2 != null ? "bg-green-500" : isRohanCase2 ? "bg-amber-400" : "bg-slate-300"
-                    }`} />
-                    <span className={`font-bold text-xs ${
-                      liveHeartRate != null || liveSpo2 != null ? "text-green-700" : isRohanCase2 ? "text-amber-700" : "text-slate-400"
-                    }`}>
+                    <span className={`w-2 h-2 rounded-full animate-pulse ${liveHeartRate != null || liveSpo2 != null ? "bg-green-500" : isRohanCase2 ? "bg-amber-400" : "bg-slate-300"
+                      }`} />
+                    <span className={`font-bold text-xs ${liveHeartRate != null || liveSpo2 != null ? "text-green-700" : isRohanCase2 ? "text-amber-700" : "text-slate-400"
+                      }`}>
                       {liveHeartRate != null || liveSpo2 != null
                         ? "Heart Rate & SpO2: Live sensor data · Sleep & EDA: Demo data"
                         : isRohanCase2
-                        ? "Awaiting live wearable reading · Sleep & EDA: Demo data"
-                        : "No device connected for this case"}
+                          ? "Awaiting live wearable reading · Sleep & EDA: Demo data"
+                          : "No device connected for this case"}
                     </span>
                   </div>
                 </div>
@@ -1894,8 +1927,8 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                       <span>{ind}</span>
                     </div>
                   )) || (
-                    <div className="text-xs text-slate-400 italic">No specific anomaly markers logged.</div>
-                  )}
+                      <div className="text-xs text-slate-400 italic">No specific anomaly markers logged.</div>
+                    )}
                 </div>
               </div>
             </div>
@@ -1965,11 +1998,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                                 <td className="px-4 py-3 font-bold text-slate-800">{row.date}</td>
                                 <td className="px-4 py-3 text-slate-700 font-semibold">{row.duration}</td>
                                 <td className="px-4 py-3">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    row.quality === "Good" ? "bg-green-50 text-green-700 border border-green-200" :
-                                    row.quality === "Moderate" ? "bg-purple-50 text-purple-700 border border-purple-200" :
-                                    "bg-red-50 text-red-700 border border-red-200"
-                                  }`}>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${row.quality === "Good" ? "bg-green-50 text-green-700 border border-green-200" :
+                                      row.quality === "Moderate" ? "bg-purple-50 text-purple-700 border border-purple-200" :
+                                        "bg-red-50 text-red-700 border border-red-200"
+                                    }`}>
                                     {row.quality}
                                   </span>
                                 </td>
@@ -2183,11 +2215,10 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
                         <p className="text-[11px] text-slate-500 font-mono mt-0.5">{c.nhaa_ref}</p>
                       </div>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          isCritical
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isCritical
                             ? "bg-red-100 text-red-700 border border-red-200 animate-pulse"
                             : "bg-slate-100 text-slate-600 border border-slate-200"
-                        }`}
+                          }`}
                       >
                         {isCritical ? "Critical (> 60%)" : "Locked (≤ 60%)"}
                       </span>
@@ -2226,17 +2257,17 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               const isCritical = currentCase.latest_distress_score > 60;
               const isRohan = currentCase.nhaa_ref.includes("ROHAN") || currentCase.user?.name === "Rohan";
               const isAnanya = currentCase.nhaa_ref.includes("ANANYA") || currentCase.user?.name?.includes("Ananya");
-              
+
               const patientName = currentCase.user?.name || (isRohan ? "Rohan" : isAnanya ? "Ananya Patel" : "Patient");
               const caseLabel = currentCase.nhaa_ref.includes("CASE-1") && isRohan
                 ? "Rohan / Case 1"
                 : currentCase.nhaa_ref.includes("CASE-2") && isRohan
-                ? "Rohan / Case 2"
-                : isRohan
-                ? "Rohan"
-                : isAnanya
-                ? "Ananya Patel / Case 1"
-                : patientName;
+                  ? "Rohan / Case 2"
+                  : isRohan
+                    ? "Rohan"
+                    : isAnanya
+                      ? "Ananya Patel / Case 1"
+                      : patientName;
 
               // NON-CRITICAL (Distress <= 60): Show Protected View
               if (!isCritical) {
@@ -2280,29 +2311,29 @@ export default function CounsellorDashboard({ user, onLogout }: Props) {
               // CRITICAL (Distress > 60): Show Live Map & Hardware Telemetry
               const coords = isRohan
                 ? {
-                    lat: 16.4971,
-                    lon: 80.4992,
-                    place: "VIT-AP University, Amaravati, Andhra Pradesh",
-                    address: "VIT-AP University Campus, Beside AP Secretariat, Inavolu, Amaravati, Andhra Pradesh 522237, India",
-                    landmark: "Academic Block / Central Courtyard",
-                    minLon: 80.4850,
-                    minLat: 16.4880,
-                    maxLon: 80.5130,
-                    maxLat: 16.5060,
-                    deviceId: "MANN-IOT-GPS-082"
-                  }
+                  lat: 16.4971,
+                  lon: 80.4992,
+                  place: "VIT-AP University, Amaravati, Andhra Pradesh",
+                  address: "VIT-AP University Campus, Beside AP Secretariat, Inavolu, Amaravati, Andhra Pradesh 522237, India",
+                  landmark: "Academic Block / Central Courtyard",
+                  minLon: 80.4850,
+                  minLat: 16.4880,
+                  maxLon: 80.5130,
+                  maxLat: 16.5060,
+                  deviceId: "MANN-IOT-GPS-082"
+                }
                 : {
-                    lat: 17.6868,
-                    lon: 83.2185,
-                    place: "Visakhapatnam, Andhra Pradesh",
-                    address: "Siripuram / Beach Road Zone, Visakhapatnam, Andhra Pradesh 530003, India",
-                    landmark: "Siripuram Junction / RK Beach Corridor",
-                    minLon: 83.2000,
-                    minLat: 17.6750,
-                    maxLon: 83.2370,
-                    maxLat: 17.6980,
-                    deviceId: "MANN-IOT-GPS-104"
-                  };
+                  lat: 17.6868,
+                  lon: 83.2185,
+                  place: "Visakhapatnam, Andhra Pradesh",
+                  address: "Siripuram / Beach Road Zone, Visakhapatnam, Andhra Pradesh 530003, India",
+                  landmark: "Siripuram Junction / RK Beach Corridor",
+                  minLon: 83.2000,
+                  minLat: 17.6750,
+                  maxLon: 83.2370,
+                  maxLat: 17.6980,
+                  deviceId: "MANN-IOT-GPS-104"
+                };
 
               const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${coords.minLon}%2C${coords.minLat}%2C${coords.maxLon}%2C${coords.maxLat}&layer=mapnik&marker=${coords.lat}%2C${coords.lon}`;
 
@@ -2555,8 +2586,8 @@ function FusionScorePanel({ score, tier, trend }: { score: string | number; tier
   const trendView = t.includes("wors") || t.includes("ris")
     ? { arrow: "↑", cls: "bg-red-50 text-red-700 border-red-200" }
     : t.includes("improv") || t.includes("fall")
-    ? { arrow: "↓", cls: "bg-green-50 text-green-700 border-green-200" }
-    : { arrow: "→", cls: "bg-slate-100 text-slate-700 border-slate-200" };
+      ? { arrow: "↓", cls: "bg-green-50 text-green-700 border-green-200" }
+      : { arrow: "→", cls: "bg-slate-100 text-slate-700 border-slate-200" };
 
   // SVG ring: 270° arc (open at the bottom) reads as a gauge rather than a pie.
   const size = 240;
