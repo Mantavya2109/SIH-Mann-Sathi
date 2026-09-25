@@ -5,8 +5,15 @@ from dotenv import load_dotenv
 from groq import Groq
 from backend.app.services.rag_ingest import match_provisions
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[3] / ".env")
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+_groq_client = None
+
+def get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key:
+            _groq_client = Groq(api_key=groq_key)
+    return _groq_client
 
 
 def generate_recommendation(distress_summary: str, case_stage: str = None) -> dict:
@@ -46,6 +53,12 @@ Relevant provisions:
 Respond ONLY as JSON:
 {{"recommendation_text": "...", "cited_sections": ["section_ref", ...]}}"""
 
+    client = get_groq_client()
+    if not client:
+        return {
+            "recommendation_text": "AI recommendations currently unavailable.",
+            "cited_provisions": []
+        }
     model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     response = client.chat.completions.create(
         model=model,
