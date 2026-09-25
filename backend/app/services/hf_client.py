@@ -51,29 +51,37 @@ class HFInferenceClient:
     def _get_text_pipeline(self):
         """Lazy-loaded DistilRoBERTa 7-class emotion classification pipeline."""
         if self._text_pipeline is None:
-            from transformers import pipeline
-            logger.info(f"Loading Hugging Face text emotion pipeline: {TEXT_EMOTION_MODEL_ID}")
-            self._text_pipeline = pipeline(
-                "text-classification",
-                model=TEXT_EMOTION_MODEL_ID,
-                token=self.api_token if self.api_token else None,
-                top_k=None
-            )
-            logger.info("DistilRoBERTa text emotion pipeline loaded successfully.")
+            try:
+                from transformers import pipeline
+                logger.info(f"Loading Hugging Face text emotion pipeline: {TEXT_EMOTION_MODEL_ID}")
+                self._text_pipeline = pipeline(
+                    "text-classification",
+                    model=TEXT_EMOTION_MODEL_ID,
+                    token=self.api_token if self.api_token else None,
+                    top_k=None
+                )
+                logger.info("DistilRoBERTa text emotion pipeline loaded successfully.")
+            except Exception as e:
+                logger.warning(f"Could not load transformers text emotion pipeline locally ({e}). Will use Groq/NLP fallback.")
+                self._text_pipeline = None
         return self._text_pipeline
 
     def _get_audio_pipeline(self):
         """Lazy-loaded Wav2Vec2 4-class speech emotion classification pipeline."""
         if self._audio_pipeline is None:
-            from transformers import pipeline
-            logger.info(f"Loading Hugging Face speech emotion pipeline: {AUDIO_EMOTION_MODEL_ID}")
-            self._audio_pipeline = pipeline(
-                "audio-classification",
-                model=AUDIO_EMOTION_MODEL_ID,
-                token=self.api_token if self.api_token else None,
-                top_k=None
-            )
-            logger.info("Wav2Vec2 speech emotion pipeline loaded successfully.")
+            try:
+                from transformers import pipeline
+                logger.info(f"Loading Hugging Face speech emotion pipeline: {AUDIO_EMOTION_MODEL_ID}")
+                self._audio_pipeline = pipeline(
+                    "audio-classification",
+                    model=AUDIO_EMOTION_MODEL_ID,
+                    token=self.api_token if self.api_token else None,
+                    top_k=None
+                )
+                logger.info("Wav2Vec2 speech emotion pipeline loaded successfully.")
+            except Exception as e:
+                logger.warning(f"Could not load transformers speech emotion pipeline locally ({e}).")
+                self._audio_pipeline = None
         return self._audio_pipeline
 
     def _get_whisper_model(self):
@@ -89,19 +97,45 @@ class HFInferenceClient:
                 self._whisper_model = None
         return self._whisper_model
 
+    def _fallback_text_emotion(self, text: str) -> Dict[str, float]:
+        """Resilient 7-class emotion estimator when transformers is not installed in serverless."""
+        import json
+        if self.groq_client:
+            try:
+                prompt = f"""Estimate the 7-class emotion distribution for this text: "{text}".
+Respond ONLY with a valid JSON object matching these exact keys and float probabilities summing to 1.0:
+{{"Joy": 0.0, "Sadness": 0.0, "Fear": 0.0, "Anger": 0.0, "Surprise": 0.0, "Disgust": 0.0, "Neutral": 0.0}}"""
+                model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+                resp = self.groq_client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.0
+                )
+                data = json.loads(resp.choices[0].message.content)
+                emotions = {k: float(data.get(k, 0.0)) for k in ["Joy", "Sadness", "Fear", "Anger", "Surprise", "Disgust", "Neutral"]}
+                total = sum(emotions.values())
+                if total > 0:
+                    return {k: round(v / total, 4) for k, v in emotions.items()}
+            except Exception as groq_err:
+                logger.warning(f"Groq emotion estimation fallback failed: {groq_err}")
+
+        # Basic keyword sentiment heuristic
+        lower = text.lower()
+        if any(w in lower for w in ["sad", "depressed", "hopeless", "crying", "lonely", "hurt", "die", "suicide"]):
+            return {"Joy": 0.0, "Sadness": 0.8, "Fear": 0.1, "Anger": 0.05, "Surprise": 0.0, "Disgust": 0.0, "Neutral": 0.05}
+        if any(w in lower for w in ["afraid", "scared", "fear", "anxious", "worried", "threat", "panic"]):
+            return {"Joy": 0.0, "Sadness": 0.1, "Fear": 0.75, "Anger": 0.05, "Surprise": 0.05, "Disgust": 0.0, "Neutral": 0.05}
+        if any(w in lower for w in ["angry", "mad", "furious", "hate", "unfair", "annoyed"]):
+            return {"Joy": 0.0, "Sadness": 0.05, "Fear": 0.05, "Anger": 0.8, "Surprise": 0.05, "Disgust": 0.05, "Neutral": 0.0}
+        if any(w in lower for w in ["happy", "good", "great", "better", "relieved", "calm", "joy", "peace", "thanks", "thank"]):
+            return {"Joy": 0.8, "Sadness": 0.0, "Fear": 0.0, "Anger": 0.0, "Surprise": 0.05, "Disgust": 0.0, "Neutral": 0.15}
+        return {"Joy": 0.05, "Sadness": 0.05, "Fear": 0.05, "Anger": 0.05, "Surprise": 0.05, "Disgust": 0.05, "Neutral": 0.7}
+
     async def predict_text_emotion(self, text: str) -> Dict[str, float]:
         """
-        Runs authentic 7-class emotion classification on user text using DistilRoBERTa.
-        Returns:
-            {
-                "Joy": float,
-                "Sadness": float,
-                "Fear": float,
-                "Anger": float,
-                "Surprise": float,
-                "Disgust": float,
-                "Neutral": float
-            }
+        Runs 7-class emotion classification on user text using DistilRoBERTa,
+        falling back gracefully to Groq / NLP inference on serverless environments.
         """
         if not text or not text.strip():
             return {
@@ -111,39 +145,41 @@ class HFInferenceClient:
 
         try:
             pipe = self._get_text_pipeline()
-            # DistilRoBERTa inference
-            raw_results = pipe(text)
-            
-            # Format results: pipe returns [[{"label": "surprise", "score": 0.69}, ...]]
-            items = raw_results[0] if isinstance(raw_results, list) and raw_results and isinstance(raw_results[0], list) else raw_results
-            
-            label_mapping = {
-                "joy": "Joy",
-                "sadness": "Sadness",
-                "fear": "Fear",
-                "anger": "Anger",
-                "surprise": "Surprise",
-                "disgust": "Disgust",
-                "neutral": "Neutral"
-            }
-            
-            emotions: Dict[str, float] = {
-                "Joy": 0.0, "Sadness": 0.0, "Fear": 0.0, "Anger": 0.0,
-                "Surprise": 0.0, "Disgust": 0.0, "Neutral": 0.0
-            }
-            
-            for item in (items if isinstance(items, list) else []):
-                raw_label = item.get("label", "").lower()
-                clean_label = label_mapping.get(raw_label, raw_label.capitalize())
-                score = float(item.get("score", 0.0))
-                emotions[clean_label] = round(score, 4)
+            if pipe is not None:
+                # DistilRoBERTa inference
+                raw_results = pipe(text)
                 
-            logger.info(f"DistilRoBERTa emotion result for '{text[:40]}...': {emotions}")
-            return emotions
+                # Format results: pipe returns [[{"label": "surprise", "score": 0.69}, ...]]
+                items = raw_results[0] if isinstance(raw_results, list) and raw_results and isinstance(raw_results[0], list) else raw_results
+                
+                label_mapping = {
+                    "joy": "Joy",
+                    "sadness": "Sadness",
+                    "fear": "Fear",
+                    "anger": "Anger",
+                    "surprise": "Surprise",
+                    "disgust": "Disgust",
+                    "neutral": "Neutral"
+                }
+                
+                emotions: Dict[str, float] = {
+                    "Joy": 0.0, "Sadness": 0.0, "Fear": 0.0, "Anger": 0.0,
+                    "Surprise": 0.0, "Disgust": 0.0, "Neutral": 0.0
+                }
+                
+                for item in (items if isinstance(items, list) else []):
+                    raw_label = item.get("label", "").lower()
+                    clean_label = label_mapping.get(raw_label, raw_label.capitalize())
+                    score = float(item.get("score", 0.0))
+                    emotions[clean_label] = round(score, 4)
+                    
+                logger.info(f"DistilRoBERTa emotion result for '{text[:40]}...': {emotions}")
+                return emotions
 
         except Exception as e:
-            logger.error(f"Text emotion inference failed for input '{text}': {e}", exc_info=True)
-            raise RuntimeError(f"Text emotion model inference error: {e}") from e
+            logger.warning(f"Text emotion pipeline inference failed: {e}. Falling back to Groq / heuristic emotion extraction.")
+
+        return self._fallback_text_emotion(text)
 
     async def analyze_audio(self, file_bytes: bytes, filename: str = "audio.webm", content_type: str = "audio/webm") -> Dict[str, Any]:
         """
