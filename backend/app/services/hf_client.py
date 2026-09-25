@@ -4,9 +4,21 @@ import io
 import logging
 import tempfile
 from typing import Dict, Any, Optional, List
-import numpy as np
-import soundfile as sf
-import librosa
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
+
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
 from groq import Groq
 from dotenv import load_dotenv
 from pathlib import Path
