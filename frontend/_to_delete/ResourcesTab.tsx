@@ -122,8 +122,8 @@ export default function ResourcesTab({ user, initialExerciseId }: Props) {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto" style={{ background: "#f7f8fb" }}>
-      <div className="p-8 max-w-5xl mx-auto w-full space-y-8">
+    <div className="flex-1 min-h-0 flex flex-col min-w-0 overflow-y-auto" style={{ background: "#f7f8fb" }}>
+      <div className="p-4 sm:p-6 md:p-8 max-w-5xl mx-auto w-full space-y-8">
         {/* Header */}
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -298,7 +298,7 @@ export default function ResourcesTab({ user, initialExerciseId }: Props) {
       {/* INTERACTIVE EXERCISE MODAL */}
       {activeExercise && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-8 border border-slate-200 shadow-2xl space-y-6 text-center animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 border border-slate-200 shadow-2xl space-y-6 text-center animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-start justify-between">
               <div className="text-left">
                 <span className="text-[10px] font-bold uppercase tracking-wide text-[#0d9488]">

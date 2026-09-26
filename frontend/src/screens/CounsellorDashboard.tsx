@@ -2764,4 +2764,3 @@ function KpiCard({
     </motion.div>
   );
 }
-
